@@ -87,7 +87,7 @@ async function main() {
   const fileBuffer = fs.readFileSync(filePath);
   const base64Image = fileBuffer.toString("base64");
   
-  const models = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-flash-latest"];
+  const models = ["gemini-2.0-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-lite-latest"];
   for (const model of models) {
     const ok = await testModel(model, base64Image, apiKey);
     console.log(`Model ${model} result: ${ok ? "SUCCESS" : "FAILED"}`);

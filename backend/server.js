@@ -256,7 +256,7 @@ JSON structure example:
   "suggestedKeywords": ["..."]
 }`;
 
-    const response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
+    const response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`,
       JSON.stringify({
         contents: [
           {
