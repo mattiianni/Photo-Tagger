@@ -189,12 +189,6 @@ export default function FaceTrainer({ onMatcherUpdated }) {
     setStatusMessage(`Analisi del volto per ${people[targetPersonIndex].name}...`);
     
     try {
-      // Crop onto a temporary canvas
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = w;
-      tempCanvas.height = h;
-      const tempCtx = tempCanvas.getContext('2d');
-      
       // Load original high-resolution image to crop from it for max detail
       const img = new Image();
       img.src = cropImage;
@@ -204,16 +198,25 @@ export default function FaceTrainer({ onMatcherUpdated }) {
       const scaleX = img.width / canvas.width;
       const scaleY = img.height / canvas.height;
       
+      const cropW = w * scaleX;
+      const cropH = h * scaleY;
+      
+      // Crop onto a temporary canvas at high resolution
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = cropW;
+      tempCanvas.height = cropH;
+      const tempCtx = tempCanvas.getContext('2d');
+      
       tempCtx.drawImage(
         img,
         x * scaleX,
         y * scaleY,
-        w * scaleX,
-        h * scaleY,
+        cropW,
+        cropH,
         0,
         0,
-        w,
-        h
+        cropW,
+        cropH
       );
       
       const croppedBase64 = tempCanvas.toDataURL('image/jpeg', 0.9);
