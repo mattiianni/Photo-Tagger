@@ -198,8 +198,8 @@ JSON structure example:
             ]
           }
         ],
-        generationConfig: {
-          responseMimeType: "application/json"
+        generation_config: {
+          response_mime_type: "application/json"
         }
       })
     });
@@ -215,6 +215,7 @@ JSON structure example:
 
     res.json({ success: true, analysis });
   } catch (error) {
+    console.error("Error during Gemini analysis:", error);
     res.status(500).json({ error: error.message });
   }
 });
