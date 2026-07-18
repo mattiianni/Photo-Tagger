@@ -1780,13 +1780,9 @@ export default function App() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <select
                       className="form-select"
-                      style={{ padding: '2px 4px', fontSize: '11px', borderRadius: '4px', maxWidth: '120px', cursor: 'pointer', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
-                      value={(face.name === 'unknown' || face.name === 'Sconosciuto') ? 'Sconosciuto' : face.name}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleIdentifyFace(index, e.target.value);
-                        }
-                      }}
+                      style={{ padding: '2px 4px', fontSize: '11px', borderRadius: '4px', width: 'auto', minWidth: '100px' }}
+                      value={face.name}
+                      onChange={(e) => handleIdentifyFace(index, e.target.value)}
                     >
                       <option value="Sconosciuto">Sconosciuto</option>
                       {people.map(p => (

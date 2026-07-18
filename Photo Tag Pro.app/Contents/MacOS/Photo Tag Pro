@@ -43,9 +43,10 @@ if [ ! -z "$PORT_PID" ]; then
   sleep 1
 fi
 
-# Start the node server in background using Node's native detached process spawn (decouples from launchd without AppleScript)
+# Start the node server in background using robust nohup and absolute node path
 echo "Starting backend server..."
-node -e "const { spawn } = require('child_process'); const fs = require('fs'); const out = fs.openSync('backend_server.log', 'w'); const err = fs.openSync('backend_server.log', 'a'); const child = spawn('node', ['backend/server.js'], { detached: true, stdio: ['ignore', out, err] }); child.unref();"
+NODE_BIN=$(command -v node)
+nohup "$NODE_BIN" backend/server.js > backend_server.log 2>&1 &
 
 # Wait 2 seconds for the server to spin up
 sleep 2
