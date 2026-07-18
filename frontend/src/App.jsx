@@ -731,7 +731,8 @@ export default function App() {
         updatedImages[mainIdx] = {
           ...img,
           metadata: newMeta,
-          analyzed: true
+          analyzed: true,
+          isNew: true
         };
         // Update live
         setImages([...updatedImages]);
@@ -844,10 +845,14 @@ export default function App() {
   };
 
   // Save all analyzed images to disk (with support for onlySelected)
-  const saveAllMetadata = async (onlySelected = false) => {
-    const toSave = onlySelected
-      ? images.filter(img => selectedImagePaths.has(img.path) && img.analyzed)
-      : images.filter(img => img.analyzed);
+  const saveAllMetadata = async (onlySelected = false, onlyNew = false) => {
+    let toSave = images.filter(img => img.analyzed);
+    if (onlySelected) {
+      toSave = toSave.filter(img => selectedImagePaths.has(img.path));
+    }
+    if (onlyNew) {
+      toSave = toSave.filter(img => img.isNew);
+    }
 
     if (toSave.length === 0) {
       showToast("Nessuna foto selezionata/elaborata modificata da salvare.", "error");
@@ -860,18 +865,32 @@ export default function App() {
     let currentPeopleList = [...people];
     let anyTrainingUpdates = false;
 
+    const pathsSuccessfullySaved = [];
+
     for (let i = 0; i < toSave.length; i++) {
       const img = toSave[i];
       setCurrentProcessingName(`Scrittura metadati e volti: ${img.name}`);
       const result = await saveImageMetadata(img, currentPeopleList);
       if (result.success) {
         successCount++;
+        pathsSuccessfullySaved.push(img.path);
       }
       if (result.hasNewTraining) {
         currentPeopleList = result.newPeopleList;
         anyTrainingUpdates = true;
       }
       setProgress(Math.round(((i + 1) / toSave.length) * 100));
+    }
+    
+    if (pathsSuccessfullySaved.length > 0) {
+      setImages(prevImages => prevImages.map(img => 
+        pathsSuccessfullySaved.includes(img.path) ? { ...img, isNew: false } : img
+      ));
+      
+      // If the selected image is among those saved, update it too
+      if (selectedImage && pathsSuccessfullySaved.includes(selectedImage.path)) {
+        setSelectedImage(prev => ({...prev, isNew: false}));
+      }
     }
     
     if (anyTrainingUpdates) {
@@ -1633,7 +1652,12 @@ export default function App() {
                       💾 Salva Selezionata
                     </button>
                   )}
-                  <button className="btn btn-primary" onClick={() => saveAllMetadata(false)} disabled={processing}>
+                  {images.some(img => img.isNew) && (
+                    <button className="btn btn-secondary" style={{ background: 'var(--success-color)', borderColor: 'var(--success-color)', color: '#fff', boxShadow: '0 4px 12px rgba(10, 132, 255, 0.4)' }} onClick={() => saveAllMetadata(false, true)}>
+                      💾 Salva Solo Nuove ({images.filter(img => img.isNew).length})
+                    </button>
+                  )}
+                  <button className="btn btn-primary" onClick={() => saveAllMetadata(false, false)} disabled={processing}>
                     💾 Salva Tutte ({images.filter(img => img.analyzed).length})
                   </button>
                 </>
@@ -1730,10 +1754,12 @@ export default function App() {
                     <div className="photo-card-info">
                       <div className="photo-name">{img.name}</div>
                       <div className="photo-status">
-                        {img.analyzed ? (
-                          <span className="badge badge-success">Analizzata</span>
+                        {img.isNew ? (
+                          <span className="badge badge-success" style={{background: 'var(--success-color)', color: '#fff'}}>Nuova</span>
+                        ) : img.analyzed ? (
+                          <span className="badge badge-primary" style={{background: '#0a84ff', color: '#fff'}}>Analizzata</span>
                         ) : (
-                          <span className="badge badge-pending">In Attesa</span>
+                          <span className="badge badge-pending" style={{background: '#ff9f0a', color: '#fff'}}>In Attesa</span>
                         )}
                       </div>
                     </div>
@@ -1937,7 +1963,8 @@ export default function App() {
               analyzeImage(selectedImage).then(meta => {
                 setAnalyzingSingle(false);
                 if (meta) {
-                  const updated = { ...selectedImage, metadata: meta, analyzed: true };
+                  // If an image is successfully saved individually, remove its isNew flag
+                  const updated = { ...selectedImage, metadata: meta, analyzed: true, isNew: false };
                   setSelectedImage(updated);
                   setImages(images.map(img => img.path === selectedImage.path ? updated : img));
                   showToast("Foto rielaborata con successo!");
