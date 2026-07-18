@@ -35,7 +35,7 @@ export default function App() {
 
   // Scan folder
   const handleScanFolder = async (pathOverride) => {
-    const targetPath = pathOverride || dirPath;
+    const targetPath = (typeof pathOverride === 'string') ? pathOverride : dirPath;
     if (!targetPath) return alert("Inserisci un percorso valido.");
     try {
       const response = await fetch('http://localhost:3001/api/scan', {
