@@ -3,6 +3,10 @@ import FaceTrainer from './components/FaceTrainer';
 import LocationDbSettings from './components/LocationDbSettings';
 import { detectAndMatchFaces } from './utils/faceRecognition';
 
+const API_BASE = window.location.port === '5173'
+  ? `http://${window.location.hostname}:3001`
+  : window.location.origin;
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('photos'); // 'photos', 'faces', 'travel-db'
   const [dirPath, setDirPath] = useState(() => localStorage.getItem('last_dir_path') || '');
@@ -38,7 +42,7 @@ export default function App() {
     const targetPath = (typeof pathOverride === 'string') ? pathOverride : dirPath;
     if (!targetPath) return alert("Inserisci un percorso valido.");
     try {
-      const response = await fetch('http://localhost:3001/api/scan', {
+      const response = await fetch(`${API_BASE}/api/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dirPath: targetPath })
@@ -93,14 +97,14 @@ export default function App() {
       // 1. Run local face-api.js detection in browser
       let detectedFaces = [];
       try {
-        const imageSrc = `http://localhost:3001/api/image?path=${encodeURIComponent(img.path)}`;
+        const imageSrc = `${API_BASE}/api/image?path=${encodeURIComponent(img.path)}`;
         detectedFaces = await detectAndMatchFaces(imageSrc, faceMatcher);
       } catch (faceErr) {
         console.error("Face-api.js error:", faceErr);
       }
 
       // 2. Query Gemini Vision API (via local backend proxy)
-      const response = await fetch('http://localhost:3001/api/analyze-gemini', {
+      const response = await fetch(`${API_BASE}/api/analyze-gemini`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -212,7 +216,7 @@ export default function App() {
   // Write single image metadata to file
   const saveImageMetadata = async (img) => {
     try {
-      const response = await fetch('http://localhost:3001/api/write-metadata', {
+      const response = await fetch(`${API_BASE}/api/write-metadata`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -400,7 +404,7 @@ export default function App() {
                   >
                     <div className="photo-thumb-container">
                       <img 
-                        src={`http://localhost:3001/api/image?path=${encodeURIComponent(img.path)}`} 
+                        src={`${API_BASE}/api/image?path=${encodeURIComponent(img.path)}`} 
                         alt={img.name} 
                         className="photo-thumb" 
                       />
@@ -440,7 +444,7 @@ export default function App() {
         <aside className="inspector glass">
           <div className="inspector-section" style={{ textAlign: 'center' }}>
             <img 
-              src={`http://localhost:3001/api/image?path=${encodeURIComponent(selectedImage.path)}`} 
+              src={`${API_BASE}/api/image?path=${encodeURIComponent(selectedImage.path)}`} 
               alt="Anteprima" 
               style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '8px', objectFit: 'contain', background: '#000' }}
             />

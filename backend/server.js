@@ -234,6 +234,6 @@ app.get("*", (req, res, next) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`PhotoArchivist AI server running on http://localhost:${PORT}`);
 });
