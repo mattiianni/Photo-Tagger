@@ -2,15 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as faceapi from '@vladmandic/face-api';
 import { loadFaceApiModels } from '../utils/faceRecognition';
 
-export default function FaceTrainer({ onMatcherUpdated }) {
-  const [people, setPeople] = useState(() => {
-    const saved = localStorage.getItem('trained_people');
-    return saved ? JSON.parse(saved) : [
-      { name: 'Mattia', photos: [], descriptors: [] },
-      { name: 'Tiziana', photos: [], descriptors: [] },
-      { name: 'Samuele', photos: [], descriptors: [] }
-    ];
-  });
+export default function FaceTrainer({ people, onPeopleUpdated, onMatcherUpdated }) {
+  // people state is now managed by parent App component
   
   const [training, setTraining] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -25,10 +18,7 @@ export default function FaceTrainer({ onMatcherUpdated }) {
   
   const canvasRef = useRef(null);
 
-  useEffect(() => {
-    localStorage.setItem('trained_people', JSON.stringify(people));
-    rebuildMatcher();
-  }, [people]);
+  // rebuildMatcher is handled by parent App component
 
   // Handle canvas drawing for cropper
   useEffect(() => {
@@ -99,24 +89,7 @@ export default function FaceTrainer({ onMatcherUpdated }) {
     };
   }, [cropImage, dragStart, dragEnd, isDragging, showModal]);
 
-  const rebuildMatcher = async () => {
-    const activePeople = people.filter(p => p.descriptors && p.descriptors.length > 0);
-    if (activePeople.length === 0) {
-      onMatcherUpdated(null);
-      return;
-    }
-    
-    try {
-      const labeledDescriptors = activePeople.map(p => {
-        const floatDescriptors = p.descriptors.map(d => new Float32Array(d));
-        return new faceapi.LabeledFaceDescriptors(p.name, floatDescriptors);
-      });
-      const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
-      onMatcherUpdated(matcher);
-    } catch (err) {
-      console.error('Error rebuilding face matcher:', err);
-    }
-  };
+  // rebuildMatcher is handled by parent App component
 
   const handlePhotoSelect = async (personIndex, e) => {
     const file = e.target.files[0];
@@ -242,7 +215,7 @@ export default function FaceTrainer({ onMatcherUpdated }) {
         const updatedPeople = [...people];
         updatedPeople[targetPersonIndex].photos.push(thumbBase64);
         updatedPeople[targetPersonIndex].descriptors.push(Array.from(detection.descriptor));
-        setPeople(updatedPeople);
+        onPeopleUpdated(updatedPeople);
         setStatusMessage(`Volto di ${people[targetPersonIndex].name} registrato!`);
         setShowModal(false);
       } else {
@@ -260,14 +233,25 @@ export default function FaceTrainer({ onMatcherUpdated }) {
   const removePerson = (index) => {
     if (confirm(`Sicuro di voler rimuovere ${people[index].name}?`)) {
       const updated = people.filter((_, i) => i !== index);
-      setPeople(updated);
+      onPeopleUpdated(updated);
+    }
+  };
+
+  const removePhoto = (personIdx, photoIdx) => {
+    if (confirm(`Sicuro di voler rimuovere questa foto dall'addestramento di ${people[personIdx].name}?`)) {
+      const updatedPeople = [...people];
+      updatedPeople[personIdx].photos = updatedPeople[personIdx].photos.filter((_, idx) => idx !== photoIdx);
+      if (updatedPeople[personIdx].descriptors) {
+        updatedPeople[personIdx].descriptors = updatedPeople[personIdx].descriptors.filter((_, idx) => idx !== photoIdx);
+      }
+      onPeopleUpdated(updatedPeople);
     }
   };
 
   const addPerson = () => {
     const name = prompt('Inserisci il nome della persona:');
     if (name) {
-      setPeople([...people, { name, photos: [], descriptors: [] }]);
+      onPeopleUpdated([...people, { name, photos: [], descriptors: [] }]);
     }
   };
 
@@ -297,28 +281,63 @@ export default function FaceTrainer({ onMatcherUpdated }) {
               </button>
             </div>
             
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '8px', alignItems: 'center' }}>
               {person.photos.map((photo, photoIdx) => (
-                <img 
+                <div 
                   key={photoIdx} 
-                  src={photo} 
-                  alt={person.name} 
-                  style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid var(--accent-color)' }}
-                />
+                  style={{ 
+                    position: 'relative', 
+                    width: '64px', 
+                    height: '64px'
+                  }}
+                >
+                  <img 
+                    src={photo} 
+                    alt={person.name} 
+                    style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--accent-color)' }}
+                  />
+                  <button
+                    onClick={() => removePhoto(personIdx, photoIdx)}
+                    style={{
+                      position: 'absolute',
+                      top: '-2px',
+                      right: '-2px',
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      background: 'var(--danger-color)',
+                      color: '#fff',
+                      border: '1.5px solid var(--input-bg)',
+                      fontSize: '10px',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                      padding: 0,
+                      lineHeight: 1
+                    }}
+                    title="Rimuovi questa foto dall'addestramento"
+                  >
+                    ×
+                  </button>
+                </div>
               ))}
               
               <label 
                 style={{ 
-                  width: '40px', 
-                  height: '40px', 
+                  width: '64px', 
+                  height: '64px', 
                   borderRadius: '50%', 
                   border: '1.5px dashed var(--text-secondary)', 
                   display: 'flex', 
                   alignItems: 'center', 
                   justifyContent: 'center', 
                   cursor: 'pointer',
-                  fontSize: '16px',
-                  color: 'var(--text-secondary)'
+                  fontSize: '20px',
+                  color: 'var(--text-secondary)',
+                  background: 'rgba(255,255,255,0.03)'
                 }}
               >
                 +

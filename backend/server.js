@@ -6,6 +6,8 @@ import { exiftool } from "exiftool-vendored";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import https from "https";
+import crypto from "crypto";
+import { exec } from "child_process";
 
 dotenv.config();
 
@@ -23,6 +25,9 @@ function httpsPost(url, body) {
         'Content-Length': Buffer.byteLength(body)
       }
     };
+
+    console.log("httpsPost URL:", url);
+    console.log("httpsPost headers:", JSON.stringify(options.headers, null, 2));
 
     const req = https.request(options, (res) => {
       let data = '';
@@ -64,9 +69,44 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Cache helper functions
+const activeResizeJobs = new Map();
+
+function getCachePath(filePath, size) {
+  const hash = crypto.createHash("md5").update(filePath).digest("hex");
+  const cacheDir = path.join(process.cwd(), ".cache", size);
+  if (!fs.existsSync(cacheDir)) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+  }
+  return path.join(cacheDir, `${hash}.jpg`);
+}
+
+function generateResizedImage(srcPath, destPath, maxDim) {
+  const key = destPath;
+  if (activeResizeJobs.has(key)) {
+    return activeResizeJobs.get(key);
+  }
+
+  const promise = new Promise((resolve, reject) => {
+    exec(`sips -Z ${maxDim} "${srcPath}" --out "${destPath}"`, (err, stdout, stderr) => {
+      activeResizeJobs.delete(key);
+      if (err) {
+        console.error("sips error:", stderr);
+        return reject(err);
+      }
+      resolve();
+    });
+  });
+
+  activeResizeJobs.set(key, promise);
+  return promise;
+}
+
 // Endpoint to stream local images to browser
-app.get("/api/image", (req, res) => {
+app.get("/api/image", async (req, res) => {
   const filePath = req.query.path;
+  const size = req.query.size; // 'thumbnail' (300px) or 'preview' (1200px)
+
   if (!filePath) {
     return res.status(400).send("Path is required");
   }
@@ -81,8 +121,74 @@ app.get("/api/image", (req, res) => {
     return res.status(400).send("Only JPG/JPEG/PNG images are supported");
   }
 
+  // If a specific size cache is requested
+  if (size === "thumbnail" || size === "preview") {
+    const maxDim = size === "thumbnail" ? 300 : 1200;
+    const cachePath = getCachePath(filePath, size);
+
+    if (fs.existsSync(cachePath)) {
+      return res.sendFile(cachePath);
+    }
+
+    try {
+      await generateResizedImage(filePath, cachePath, maxDim);
+      return res.sendFile(cachePath);
+    } catch (err) {
+      console.error(`Error generating ${size} for ${filePath}:`, err);
+      // Fallback to sending the original file on resize error
+      return res.sendFile(filePath);
+    }
+  }
+
   res.sendFile(filePath);
 });
+
+
+// Helper function to scan a directory recursively for images
+async function scanDirectory(dirPath) {
+  let images = [];
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    // Skip hidden files/directories (like .DS_Store, .git, .Trash)
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
+
+    const fullPath = path.join(dirPath, entry.name);
+
+    if (entry.isDirectory()) {
+      try {
+        const subImages = await scanDirectory(fullPath);
+        images = images.concat(subImages);
+      } catch (err) {
+        console.error(`Error scanning subfolder ${fullPath}:`, err);
+      }
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      // Only include standard web formats (JPG, JPEG, PNG)
+      // Explicitly exclude RAW file formats (e.g. dng, cr2, cr3, nef, arw, orf, rw2, pef, raf, raw, etc.)
+      const allowedExts = [".jpg", ".jpeg", ".png"];
+      const rawExts = [".raw", ".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".pef", ".raf", ".tiff", ".tif"];
+
+      if (allowedExts.includes(ext) && !rawExts.includes(ext)) {
+        try {
+          const stats = fs.statSync(fullPath);
+          images.push({
+            name: entry.name,
+            path: fullPath,
+            size: stats.size,
+            metadata: null,
+            analyzed: false
+          });
+        } catch (err) {
+          console.error(`Error getting stats for file ${fullPath}:`, err);
+        }
+      }
+    }
+  }
+  return images;
+}
 
 // Endpoint to scan a local directory for images
 app.post("/api/scan", async (req, res) => {
@@ -109,54 +215,59 @@ app.post("/api/scan", async (req, res) => {
   }
 
   try {
-    const files = fs.readdirSync(targetPath);
-    const images = [];
+    const images = await scanDirectory(targetPath);
+    res.json({ success: true, images, resolvedPath: targetPath });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    for (const file of files) {
-      const ext = path.extname(file).toLowerCase();
-      if ([".jpg", ".jpeg"].includes(ext)) {
-        const fullPath = path.join(targetPath, file);
-        const stats = fs.statSync(fullPath);
-        
-        // Read existing metadata to display
-        let existingMetadata = {};
-        try {
-          const tags = await exiftool.read(fullPath);
-          
-          const rawTitle = (tags.Title || tags.ObjectName || tags.XPTitle || "").toString().trim();
-          const rawDesc = (tags.Description || tags.ImageDescription || tags.CaptionAbstract || tags.UserComment || tags.Comment || tags.XPComment || "").toString().trim();
-          
-          let kw = tags.Keywords || tags.Subject || tags.XPKeywords || [];
-          if (!kw) {
-            kw = [];
-          } else if (typeof kw === "string") {
-            kw = [kw];
-          } else if (!Array.isArray(kw)) {
-            kw = Array.from(kw);
-          }
-          const cleanedKeywords = kw.map(k => k.toString().trim()).filter(k => k !== "");
+// Endpoint to fetch metadata for a single image on demand
+app.post("/api/image-metadata", async (req, res) => {
+  const { filePath } = req.body;
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(400).json({ error: "Valid file path is required" });
+  }
 
-          existingMetadata = {
-            title: rawTitle,
-            description: rawDesc,
-            keywords: cleanedKeywords,
-            date: tags.DateTimeOriginal || tags.CreateDate || stats.mtime
-          };
-        } catch (err) {
-          console.error(`Error reading metadata for ${file}:`, err);
-        }
+  try {
+    const stats = fs.statSync(filePath);
+    let existingMetadata = {
+      title: "",
+      description: "",
+      keywords: [],
+      date: stats.mtime
+    };
 
-        images.push({
-          name: file,
-          path: fullPath,
-          size: stats.size,
-          metadata: existingMetadata,
-          analyzed: !!(existingMetadata.title || existingMetadata.description || existingMetadata.keywords.length > 0)
-        });
+    try {
+      const tags = await exiftool.read(filePath);
+      const rawTitle = (tags.Title || tags.ObjectName || tags.XPTitle || "").toString().trim();
+      const rawDesc = (tags.Description || tags.ImageDescription || tags.CaptionAbstract || tags.UserComment || tags.Comment || tags.XPComment || "").toString().trim();
+      
+      let kw = tags.Keywords || tags.Subject || tags.XPKeywords || [];
+      if (!kw) {
+        kw = [];
+      } else if (typeof kw === "string") {
+        kw = [kw];
+      } else if (!Array.isArray(kw)) {
+        kw = Array.from(kw);
       }
+      const cleanedKeywords = kw.map(k => k.toString().trim()).filter(k => k !== "");
+
+      existingMetadata = {
+        title: rawTitle,
+        description: rawDesc,
+        keywords: cleanedKeywords,
+        date: tags.DateTimeOriginal || tags.CreateDate || stats.mtime
+      };
+    } catch (err) {
+      console.error(`Error reading metadata for ${filePath}:`, err);
     }
 
-    res.json({ success: true, images, resolvedPath: targetPath });
+    res.json({
+      success: true,
+      metadata: existingMetadata,
+      analyzed: !!(existingMetadata.title || existingMetadata.description || existingMetadata.keywords.length > 0)
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -205,7 +316,7 @@ app.post("/api/write-metadata", async (req, res) => {
 
 // Endpoint to run Gemini Vision analysis
 app.post("/api/analyze-gemini", async (req, res) => {
-  const { filePath, base64Image, customPrompt, landmarksDb } = req.body;
+  const { filePath, base64Image, customPrompt, landmarksDb, detectedPeople } = req.body;
   
   let base64Data = "";
   if (base64Image) {
@@ -216,15 +327,42 @@ app.post("/api/analyze-gemini", async (req, res) => {
     }
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: "GEMINI_API_KEY is not set in backend .env file" });
+  let apiKey = "";
+  if (req.headers.authorization) {
+    const parts = req.headers.authorization.split(" ");
+    const token = parts.length === 2 && parts[0] === "Bearer" ? parts[1] : req.headers.authorization;
+    if (token && token.trim() !== "" && token.trim() !== "null" && token.trim() !== "undefined") {
+      const cleanToken = token.trim();
+      if (cleanToken.length >= 30 && cleanToken.toLowerCase() !== "bearer") {
+        apiKey = cleanToken;
+      }
+    }
   }
+
+  if (!apiKey) {
+    apiKey = (process.env.GEMINI_API_KEY || "").trim();
+  }
+
+  // Auto-correct common typo: number 0 instead of capital O at character 11
+  if (apiKey && apiKey.startsWith("AQ.Ab8RN6I20C")) {
+    apiKey = apiKey.replace("AQ.Ab8RN6I20C", "AQ.Ab8RN6I2OC");
+  }
+
+  if (!apiKey) {
+    return res.status(500).json({ error: "Chiave API non trovata. Inserisci la tua GEMINI_API_KEY nelle impostazioni del frontend (sidebar) o nel file .env del backend." });
+  }
+
+  console.log(`Resolved Gemini API Key - Length: ${apiKey.length}, Prefix: "${apiKey.substring(0, 5)}...", Suffix: "...${apiKey.substring(apiKey.length - 5)}"`);
 
   try {
     if (!base64Image) {
       const fileBuffer = fs.readFileSync(filePath);
       base64Data = fileBuffer.toString("base64");
+    }
+
+    let peopleInstruction = "";
+    if (detectedPeople && detectedPeople.length > 0) {
+      peopleInstruction = `\n- Le seguenti persone sono state riconosciute nella foto: ${detectedPeople.join(", ")}. Devi ASSOLUTAMENTE utilizzare questi NOMI SPECIFICI nei campi "title" e "description" invece di usare termini generici (es. usa "${detectedPeople.join(" e ")}" invece di "padre e figlio" o "madre e figlio" o "donna e bambino", etc.).`;
     }
 
     const prompt = `Analyze this photo. Return a JSON object with the following fields:
@@ -241,7 +379,7 @@ app.post("/api/analyze-gemini", async (req, res) => {
 Guidelines:
 - Return ONLY valid JSON, no markdown formatting blocks.
 - Match this travel database/context if applicable: ${JSON.stringify(landmarksDb || {})}
-- Language: Italian.
+- Language: Italian.${peopleInstruction}
 
 JSON structure example:
 {
@@ -296,6 +434,44 @@ JSON structure example:
   }
 });
 
+const TRAINED_PEOPLE_FILE = path.join(__dirname, "trained_people.json");
+
+// Endpoint to get trained people database from disk
+app.get("/api/trained-people", (req, res) => {
+  if (fs.existsSync(TRAINED_PEOPLE_FILE)) {
+    try {
+      const data = fs.readFileSync(TRAINED_PEOPLE_FILE, "utf8");
+      return res.json(JSON.parse(data));
+    } catch (err) {
+      console.error("Error reading trained_people.json:", err);
+      return res.status(500).json({ error: "Failed to read trained people database" });
+    }
+  }
+  
+  // Return default starting list if file doesn't exist
+  res.json([
+    { name: 'Mattia', photos: [], descriptors: [] },
+    { name: 'Tiziana', photos: [], descriptors: [] },
+    { name: 'Samuele', photos: [], descriptors: [] }
+  ]);
+});
+
+// Endpoint to save trained people database to disk
+app.post("/api/trained-people", (req, res) => {
+  const { peopleList } = req.body;
+  if (!peopleList || !Array.isArray(peopleList)) {
+    return res.status(400).json({ error: "peopleList is required and must be an array" });
+  }
+
+  try {
+    fs.writeFileSync(TRAINED_PEOPLE_FILE, JSON.stringify(peopleList, null, 2), "utf8");
+    res.json({ success: true, message: "Trained people database saved to disk successfully." });
+  } catch (err) {
+    console.error("Error writing trained_people.json:", err);
+    res.status(500).json({ error: "Failed to write trained people database to disk" });
+  }
+});
+
 // Serve static frontend files in production
 const frontendBuildPath = path.join(__dirname, "../frontend/dist");
 app.use(express.static(frontendBuildPath));
@@ -305,6 +481,9 @@ app.get("*", (req, res, next) => {
   }
   const indexFile = path.join(frontendBuildPath, "index.html");
   if (fs.existsSync(indexFile)) {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.sendFile(indexFile);
   } else {
     res.status(404).send("Frontend not built. Please run npm run build in frontend directory.");

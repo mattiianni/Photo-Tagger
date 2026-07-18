@@ -8,6 +8,187 @@ const API_BASE = window.location.port === '5173'
   ? `http://${window.location.hostname}:3001`
   : window.location.origin;
 
+const formatNamesItalian = (names) => {
+  if (!names || names.length === 0) return "";
+  const cleanNames = names.filter(n => n && n.trim() !== "");
+  if (cleanNames.length === 0) return "";
+  if (cleanNames.length === 1) return cleanNames[0];
+  if (cleanNames.length === 2) return `${cleanNames[0]} e ${cleanNames[1]}`;
+  return `${cleanNames.slice(0, -1).join(", ")} e ${cleanNames[cleanNames.length - 1]}`;
+};
+
+const replaceCaseInsensitive = (str, target, replacement) => {
+  if (!str || !target) return str;
+  const idx = str.toLowerCase().indexOf(target.toLowerCase());
+  if (idx === -1) return str;
+  return str.substring(0, idx) + replacement + str.substring(idx + target.length);
+};
+
+const cleanNameFromText = (text, name) => {
+  if (!text || !name) return text;
+  let cleaned = text;
+  
+  cleaned = cleaned.replace(new RegExp(`\\s+e\\s+${name}\\b`, 'gi'), "");
+  cleaned = cleaned.replace(new RegExp(`\\b${name}\\s+e\\s+`, 'gi'), "");
+  cleaned = cleaned.replace(new RegExp(`\\b${name}\\s*,\\s*`, 'gi'), "");
+  cleaned = cleaned.replace(new RegExp(`\\s*,\\s*${name}\\b`, 'gi'), "");
+  cleaned = cleaned.replace(new RegExp(`\\b${name}\\b`, 'gi'), "");
+
+  cleaned = cleaned
+    .replace(/\s*-\s*-\s*/g, " - ")
+    .replace(/,\s*,/g, ",")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  cleaned = cleaned.replace(/^[-:,\s]+|[-:,\s]+$/g, "");
+  return cleaned;
+};
+
+const replaceGenericTerms = (text, replacement) => {
+  if (!text) return text;
+  
+  const genericPatterns = [
+    { target: "madre e figlio", rep: replacement },
+    { target: "padre e figlio", rep: replacement },
+    { target: "donna e bambino", rep: replacement },
+    { target: "uomo e bambino", rep: replacement },
+    { target: "due persone", rep: replacement },
+    { target: "tre persone", rep: replacement },
+    { target: "una persona", rep: replacement },
+    { target: "la persona", rep: replacement },
+    { target: "un uomo", rep: replacement },
+    { target: "l'uomo", rep: replacement },
+    { target: "una donna", rep: replacement },
+    { target: "la donna", rep: replacement },
+    { target: "un bambino", rep: replacement },
+    { target: "il bambino", rep: replacement },
+    { target: "bambino", rep: replacement },
+    { target: "uomo", rep: replacement },
+    { target: "donna", rep: replacement },
+    { target: "persona", rep: replacement },
+    { target: "persone", rep: replacement }
+  ];
+
+  let updatedText = text;
+  for (const pattern of genericPatterns) {
+    if (updatedText.toLowerCase().includes(pattern.target)) {
+      updatedText = replaceCaseInsensitive(updatedText, pattern.target, pattern.rep);
+      return updatedText;
+    }
+  }
+  return updatedText;
+};
+
+function ImageWithFaceOverlays({ imagePath, faces, hoveredFaceIndex }) {
+  const [imgDims, setImgDims] = useState(null);
+  const imgRef = useRef(null);
+
+  const handleImgLoad = () => {
+    if (!imgRef.current) return;
+    const { naturalWidth, naturalHeight, clientWidth, clientHeight } = imgRef.current;
+    
+    const imageRatio = naturalWidth / naturalHeight;
+    const containerRatio = clientWidth / clientHeight;
+    
+    let renderedWidth, renderedHeight, offsetX, offsetY;
+    if (imageRatio > containerRatio) {
+      renderedWidth = clientWidth;
+      renderedHeight = clientWidth / imageRatio;
+      offsetX = 0;
+      offsetY = (clientHeight - renderedHeight) / 2;
+    } else {
+      renderedHeight = clientHeight;
+      renderedWidth = clientHeight * imageRatio;
+      offsetX = (clientWidth - renderedWidth) / 2;
+      offsetY = 0;
+    }
+
+    setImgDims({
+      naturalWidth,
+      naturalHeight,
+      renderedWidth,
+      renderedHeight,
+      offsetX,
+      offsetY
+    });
+  };
+
+  useEffect(() => {
+    const handleResize = () => handleImgLoad();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '180px', background: '#000', borderRadius: '8px', overflow: 'hidden' }}>
+      <img
+        ref={imgRef}
+        src={`${API_BASE}/api/image?path=${encodeURIComponent(imagePath)}&size=preview`}
+        alt="Anteprima"
+        onLoad={handleImgLoad}
+        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+      />
+      {imgDims && faces && faces.map((face, idx) => {
+        if (!face.box) return null;
+        
+        const scaleX = imgDims.renderedWidth / imgDims.naturalWidth;
+        const scaleY = imgDims.renderedHeight / imgDims.naturalHeight;
+        
+        const left = imgDims.offsetX + (face.box.x * scaleX);
+        const top = imgDims.offsetY + (face.box.y * scaleY);
+        const width = face.box.width * scaleX;
+        const height = face.box.height * scaleY;
+        
+        const isUnknown = face.name === 'Sconosciuto' || face.name === 'unknown';
+        const color = isUnknown ? '#ff4757' : '#2ed573';
+        const isHovered = idx === hoveredFaceIndex;
+        const borderThickness = isHovered ? '2.5px' : '1.5px';
+        const glow = isHovered ? `0 0 10px ${color}, inset 0 0 10px ${color}` : '0 0 4px rgba(0,0,0,0.5)';
+        const zIndex = isHovered ? 10 : 1;
+
+        return (
+          <div
+            key={idx}
+            style={{
+              position: 'absolute',
+              left: `${left}px`,
+              top: `${top}px`,
+              width: `${width}px`,
+              height: `${height}px`,
+              border: `${borderThickness} dashed ${color}`,
+              borderRadius: '4px',
+              pointerEvents: 'none',
+              boxShadow: glow,
+              zIndex,
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                top: '-16px',
+                left: '-1px',
+                background: color,
+                color: '#fff',
+                fontSize: '9px',
+                fontWeight: 'bold',
+                padding: '1px 4px',
+                borderRadius: '3px 3px 3px 0',
+                whiteSpace: 'nowrap',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                opacity: isHovered ? 1 : 0.8,
+                transition: 'opacity 0.15s ease'
+              }}
+            >
+              {face.name}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('photos'); // 'photos', 'faces', 'travel-db'
   const [dirPath, setDirPath] = useState(() => localStorage.getItem('last_dir_path') || '');
@@ -32,7 +213,35 @@ export default function App() {
   const [isManualDragging, setIsManualDragging] = useState(false);
   const [manualDragStart, setManualDragStart] = useState(null);
   const [manualDragEnd, setManualDragEnd] = useState(null);
+  const [hoveredFaceIndex, setHoveredFaceIndex] = useState(null);
   const [customPersonName, setCustomPersonName] = useState('');
+  const [toasts, setToasts] = useState([]);
+  const [selectedImagePaths, setSelectedImagePaths] = useState(new Set());
+
+  const showToast = (message, type = 'success') => {
+    const id = Date.now() + Math.random();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  };
+
+  const toggleImageSelection = (path) => {
+    setSelectedImagePaths(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  const clearImageSelection = () => {
+    setSelectedImagePaths(new Set());
+  };
+
   const manualCanvasRef = useRef(null);
 
   // Save API key to localStorage
@@ -41,6 +250,8 @@ export default function App() {
   }, [apiKey]);
 
   const [isDragActive, setIsDragActive] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [people, setPeople] = useState([]);
 
   // Save last directory path
   useEffect(() => {
@@ -49,20 +260,71 @@ export default function App() {
     }
   }, [dirPath]);
 
-  // Clean up and downsample any existing legacy high-res face photos from localStorage to prevent QuotaExceededError
+  const savePeopleToBackend = async (newPeople) => {
+    try {
+      await fetch(`${API_BASE}/api/trained-people`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ peopleList: newPeople })
+      });
+    } catch (err) {
+      console.error("Failed to save trained people to backend:", err);
+    }
+  };
+
+  const rebuildMatcher = (peopleList) => {
+    try {
+      const activePeople = peopleList.filter(p => p.descriptors && p.descriptors.length > 0);
+      if (activePeople.length === 0) {
+        setFaceMatcher(null);
+        return;
+      }
+      const labeledDescriptors = activePeople.map(p => {
+        const floatDescriptors = p.descriptors.map(d => new Float32Array(d));
+        return new faceapi.LabeledFaceDescriptors(p.name, floatDescriptors);
+      });
+      const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.70);
+      setFaceMatcher(matcher);
+    } catch (err) {
+      console.error('Error rebuilding matcher:', err);
+    }
+  };
+
+  const updatePeopleList = async (newList) => {
+    setPeople(newList);
+    localStorage.setItem('trained_people', JSON.stringify(newList));
+    rebuildMatcher(newList);
+    await savePeopleToBackend(newList);
+  };
+
+  // Load and migrate trained people database on mount
   useEffect(() => {
-    const migrateTrainedPeople = async () => {
-      const saved = localStorage.getItem('trained_people');
-      if (!saved) return;
+    const initPeople = async () => {
+      let loadedPeople = [];
       try {
-        const peopleList = JSON.parse(saved);
+        const res = await fetch(`${API_BASE}/api/trained-people`);
+        if (res.ok) {
+          loadedPeople = await res.json();
+        } else {
+          throw new Error("Server returned non-ok status");
+        }
+      } catch (err) {
+        console.error("Failed to fetch trained people from backend, falling back to localStorage:", err);
+        const saved = localStorage.getItem('trained_people');
+        loadedPeople = saved ? JSON.parse(saved) : [
+          { name: 'Mattia', photos: [], descriptors: [] },
+          { name: 'Tiziana', photos: [], descriptors: [] },
+          { name: 'Samuele', photos: [], descriptors: [] }
+        ];
+      }
+
+      // Run migration
+      try {
         let modified = false;
-        
-        for (const person of peopleList) {
+        for (const person of loadedPeople) {
           if (!person.photos) person.photos = [];
           for (let i = 0; i < person.photos.length; i++) {
             const photo = person.photos[i];
-            // If the photo string is large (e.g. over 20KB), resize it to 80x80 to free space!
             if (photo && photo.length > 20000) {
               try {
                 const resized = await new Promise((resolve) => {
@@ -76,7 +338,7 @@ export default function App() {
                     ctx.drawImage(img, 0, 0, 80, 80);
                     resolve(canvas.toDataURL('image/jpeg', 0.8));
                   };
-                  img.onerror = () => resolve(photo); // fallback to original if load fails
+                  img.onerror = () => resolve(photo);
                 });
                 if (resized !== photo) {
                   person.photos[i] = resized;
@@ -88,23 +350,91 @@ export default function App() {
             }
           }
         }
-        
         if (modified) {
-          localStorage.setItem('trained_people', JSON.stringify(peopleList));
-          console.log("Successfully migrated and compressed trained_people photos!");
+          await savePeopleToBackend(loadedPeople);
         }
-      } catch (err) {
-        console.error("Error during trained_people migration:", err);
+      } catch (migrationErr) {
+        console.error("Error during migration:", migrationErr);
       }
+
+      setPeople(loadedPeople);
+      localStorage.setItem('trained_people', JSON.stringify(loadedPeople));
+      rebuildMatcher(loadedPeople);
     };
-    
-    migrateTrainedPeople();
+
+    initPeople();
   }, []);
 
-  // Scan folder
+  const ensureMetadataLoaded = async (img) => {
+    if (!img || img.metadata !== null) return img;
+    
+    try {
+      const response = await fetch(`${API_BASE}/api/image-metadata`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: img.path })
+      });
+      const data = await response.json();
+      if (data.success) {
+        const updated = { ...img, metadata: data.metadata, analyzed: data.analyzed };
+        setImages(prev => prev.map(i => i.path === img.path ? updated : i));
+        if (selectedImage && selectedImage.path === img.path) {
+          setSelectedImage(updated);
+        }
+        return updated;
+      }
+    } catch (err) {
+      console.error("Error loading metadata for selected image:", img.name, err);
+    }
+    return img;
+  };
+
+  const handleSelectImage = async (img) => {
+    setSelectedImage(img);
+    await ensureMetadataLoaded(img);
+  };
+
+  // Background metadata loader
+  useEffect(() => {
+    if (images.length === 0 || processing) return;
+
+    const nextImg = images.find(img => img.metadata === null);
+    if (!nextImg) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/image-metadata`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filePath: nextImg.path })
+        });
+        const data = await response.json();
+        if (data.success) {
+          setImages(prev => prev.map(img => 
+            img.path === nextImg.path 
+              ? { ...img, metadata: data.metadata, analyzed: data.analyzed }
+              : img
+          ));
+          if (selectedImage && selectedImage.path === nextImg.path) {
+            setSelectedImage({
+              ...selectedImage,
+              metadata: data.metadata,
+              analyzed: data.analyzed
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error loading background metadata for:", nextImg.name, err);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [images, processing, selectedImage?.path]);
+
   const handleScanFolder = async (pathOverride) => {
     const targetPath = (typeof pathOverride === 'string') ? pathOverride : dirPath;
-    if (!targetPath) return alert("Inserisci un percorso valido.");
+    if (!targetPath) return showToast("Inserisci un percorso valido.", "error");
+    setIsScanning(true);
     try {
       const response = await fetch(`${API_BASE}/api/scan`, {
         method: 'POST',
@@ -118,14 +448,17 @@ export default function App() {
           setDirPath(data.resolvedPath);
         }
         if (data.images.length > 0) {
-          setSelectedImage(data.images[0]);
+          handleSelectImage(data.images[0]);
         }
+        showToast("Scansione completata con successo!");
       } else {
-        alert("Errore durante la scansione: " + data.error);
+        showToast("Errore durante la scansione: " + data.error, "error");
       }
     } catch (err) {
       console.error(err);
-      alert("Impossibile connettersi al backend locale. Assicurati che sia avviato.");
+      showToast("Impossibile connettersi al backend locale. Assicurati che sia avviato.", "error");
+    } finally {
+      setIsScanning(false);
     }
   };
 
@@ -149,14 +482,14 @@ export default function App() {
         const dir = file.path.substring(0, file.path.lastIndexOf('/'));
         handleScanFolder(dir);
       } else {
-        alert("Rilascia una cartella valida invece di singoli file.");
+        showToast("Rilascia una cartella valida invece di singoli file.", "error");
       }
     }
   };
 
   // Downsample image in browser before sending to Gemini to save bandwidth and speed up analysis
   const downsampleImage = async (imagePath, maxDim = 1024) => {
-    const url = `${API_BASE}/api/image?path=${encodeURIComponent(imagePath)}`;
+    const url = `${API_BASE}/api/image?path=${encodeURIComponent(imagePath)}&size=preview`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Failed to fetch image");
     const blob = await res.blob();
@@ -199,7 +532,7 @@ export default function App() {
       // 1. Run local face-api.js detection in browser
       let detectedFaces = [];
       try {
-        const imageSrc = `${API_BASE}/api/image?path=${encodeURIComponent(img.path)}`;
+        const imageSrc = `${API_BASE}/api/image?path=${encodeURIComponent(img.path)}&size=preview`;
         detectedFaces = await detectAndMatchFaces(imageSrc, faceMatcher);
       } catch (faceErr) {
         console.error("Face-api.js error:", faceErr);
@@ -213,28 +546,68 @@ export default function App() {
         console.error("Downsample error:", downsampleErr);
       }
 
-      // 2. Query Gemini Vision API (via local backend proxy)
-      const response = await fetch(`${API_BASE}/api/analyze-gemini`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}` 
-        },
-        body: JSON.stringify({
-          filePath: base64Image ? undefined : img.path,
-          base64Image: base64Image ? base64Image.split(',')[1] : undefined,
-          landmarksDb
-        })
-      });
+      // 2. Query Gemini Vision API (via local backend proxy) with retry and rate-limiting self-healing
+      let data = null;
+      let retries = 3;
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || `Server returned status ${response.status}`);
+      // Spacing delay to stay under the Free Tier 15 RPM rate limit (1 request every 4 seconds)
+      if (processing) {
+        await new Promise(resolve => setTimeout(resolve, 4000));
       }
 
-      const data = await response.json();
-      if (!data.success) throw new Error(data.error);
+      while (retries > 0) {
+        try {
+          const response = await fetch(`${API_BASE}/api/analyze-gemini`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey.trim()}` 
+            },
+            body: JSON.stringify({
+              filePath: base64Image ? undefined : img.path,
+              base64Image: base64Image ? base64Image.split(',')[1] : undefined,
+              landmarksDb,
+              detectedPeople: detectedFaces.filter(f => f.name && f.name !== 'Sconosciuto' && f.name !== 'unknown' && f.name !== 'Unknown').map(f => f.name)
+            })
+          });
 
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || `Server returned status ${response.status}`);
+          }
+
+          data = await response.json();
+          if (!data.success) throw new Error(data.error);
+          break; // Success! Exit retry loop
+        } catch (fetchErr) {
+          const errMsg = fetchErr.message || "";
+          const isRateLimit = errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.toLowerCase().includes("quota");
+          
+          retries--;
+          if (isRateLimit && retries > 0) {
+            let secondsToWait = 45;
+            // Extract wait time from Gemini API message (e.g. "retry in 43.15s" or similar)
+            const match = errMsg.match(/retry in ([\d.]+)\s*s/i) || errMsg.match(/retryDelay":\s*"(\d+)/);
+            if (match && match[1]) {
+              secondsToWait = Math.ceil(parseFloat(match[1])) + 2; // Add a 2s safety buffer
+            }
+
+            console.warn(`Rate limit reached for ${img.name}. Waiting ${secondsToWait} seconds before retrying...`);
+            
+            // Render a real-time countdown in the batch status bar
+            for (let w = secondsToWait; w > 0; w--) {
+              setCurrentProcessingName(`Quota superata. Attesa di ${w}s prima di riprovare...`);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            setCurrentProcessingName(img.name);
+            continue;
+          } else {
+            throw fetchErr;
+          }
+        }
+      }
+
+      if (!data) throw new Error("Failed to receive analysis data after retries.");
       const analysis = data.analysis;
 
       // 3. Combine analysis
@@ -250,7 +623,7 @@ export default function App() {
 
       // Add detected faces and also expand keywords based on travel landmarks db
       detectedFaces.forEach(f => {
-        if (f.name !== 'Sconosciuto' && f.confidence > 50) {
+        if (f.name && f.name !== 'Sconosciuto' && f.name !== 'unknown' && f.name !== 'Unknown') {
           finalKeywords.add(f.name);
         }
       });
@@ -275,9 +648,37 @@ export default function App() {
         finalKeywords.add("Viaggio");
       }
 
+      // Ensure recognized faces are in the title and description
+      const recognizedNames = detectedFaces
+        .filter(f => f.name && f.name !== 'Sconosciuto' && f.name !== 'unknown' && f.name !== 'Unknown')
+        .map(f => f.name);
+
+      let finalTitle = analysis.title || img.metadata?.title || img.name;
+      let finalDescription = analysis.description || img.metadata?.description || '';
+
+      if (recognizedNames.length > 0) {
+        const namesFormatted = formatNamesItalian(recognizedNames);
+        
+        // Ensure title contains all recognized names
+        const containsNamesTitle = recognizedNames.every(name => finalTitle.toLowerCase().includes(name.toLowerCase()));
+        if (!containsNamesTitle) {
+          if (finalTitle) {
+            finalTitle = `${namesFormatted} - ${finalTitle}`;
+          } else {
+            finalTitle = namesFormatted;
+          }
+        }
+
+        // Ensure description contains all recognized names
+        const containsNamesDesc = recognizedNames.every(name => finalDescription.toLowerCase().includes(name.toLowerCase()));
+        if (!containsNamesDesc && finalDescription) {
+          finalDescription = `${namesFormatted}: ${finalDescription}`;
+        }
+      }
+
       const updatedMetadata = {
-        title: analysis.title || img.metadata?.title || img.name,
-        description: analysis.description || img.metadata?.description || '',
+        title: finalTitle,
+        description: finalDescription,
         keywords: Array.from(finalKeywords),
         faces: detectedFaces,
         confidence: {
@@ -294,29 +695,15 @@ export default function App() {
     }
   };
 
-  // Run batch analysis
-  const runBatchTagging = async () => {
-    if (images.length === 0) return alert("Nessuna foto da analizzare.");
-    
-    const analyzedCount = images.filter(img => img.analyzed).length;
-    let skipAlreadyAnalyzed = false;
+  // Run batch analysis (with support for onlySelected)
+  const runBatchTagging = async (onlySelected = false) => {
+    const targetImages = onlySelected 
+      ? images.filter(img => selectedImagePaths.has(img.path))
+      : [...images];
 
-    if (analyzedCount > 0) {
-      const choice = prompt(
-        `Trovate ${analyzedCount} foto già elaborate.\n\n` +
-        `Scegli un'opzione:\n` +
-        `1 - Elabora SOLO le foto rimaste in attesa (consigliato)\n` +
-        `2 - Rielabora TUTTE le foto (sovrascrivi tutto)\n\n` +
-        `Lascia vuoto o premi Annulla per fermare il batch.`
-      );
-      
-      if (choice === '1') {
-        skipAlreadyAnalyzed = true;
-      } else if (choice === '2') {
-        skipAlreadyAnalyzed = false;
-      } else {
-        return; // Aborted
-      }
+    if (targetImages.length === 0) {
+      showToast("Nessuna foto da analizzare.", "error");
+      return;
     }
     
     setProcessing(true);
@@ -324,17 +711,23 @@ export default function App() {
     
     const updatedImages = [...images];
     
-    for (let i = 0; i < updatedImages.length; i++) {
-      const img = updatedImages[i];
-      if (skipAlreadyAnalyzed && img.analyzed) {
-        setProgress(Math.round(((i + 1) / updatedImages.length) * 100));
+    for (let i = 0; i < targetImages.length; i++) {
+      const targetImg = targetImages[i];
+      const mainIdx = updatedImages.findIndex(img => img.path === targetImg.path);
+      if (mainIdx === -1) continue;
+
+      const img = updatedImages[mainIdx];
+      // Skip if we are running the global process and this image was already analyzed.
+      // If the user selected specific images, we analyze them regardless of status.
+      if (!onlySelected && img.analyzed) {
+        setProgress(Math.round(((i + 1) / targetImages.length) * 100));
         continue;
       }
       setCurrentProcessingName(img.name);
       
       const newMeta = await analyzeImage(img);
       if (newMeta) {
-        updatedImages[i] = {
+        updatedImages[mainIdx] = {
           ...img,
           metadata: newMeta,
           analyzed: true
@@ -342,16 +735,19 @@ export default function App() {
         // Update live
         setImages([...updatedImages]);
         if (selectedImage && selectedImage.path === img.path) {
-          setSelectedImage(updatedImages[i]);
+          setSelectedImage(updatedImages[mainIdx]);
         }
       }
       
-      setProgress(Math.round(((i + 1) / updatedImages.length) * 100));
+      setProgress(Math.round(((i + 1) / targetImages.length) * 100));
     }
     
     setProcessing(false);
     setCurrentProcessingName('');
-    alert("Analisi batch completata!");
+    showToast("Analisi batch completata!");
+    if (onlySelected) {
+      clearImageSelection();
+    }
   };
 
   // Write single image metadata to file
@@ -382,10 +778,16 @@ export default function App() {
     }
   };
 
-  // Save all analyzed images to disk
-  const saveAllMetadata = async () => {
-    const toSave = images.filter(img => img.analyzed);
-    if (toSave.length === 0) return alert("Nessuna modifica da salvare.");
+  // Save all analyzed images to disk (with support for onlySelected)
+  const saveAllMetadata = async (onlySelected = false) => {
+    const toSave = onlySelected
+      ? images.filter(img => selectedImagePaths.has(img.path) && img.analyzed)
+      : images.filter(img => img.analyzed);
+
+    if (toSave.length === 0) {
+      showToast("Nessuna foto selezionata/elaborata modificata da salvare.", "error");
+      return;
+    }
 
     setProcessing(true);
     let successCount = 0;
@@ -400,8 +802,12 @@ export default function App() {
 
     setProcessing(false);
     setCurrentProcessingName('');
-    alert(`Salvataggio completato! Scrittura riuscita per ${successCount} di ${toSave.length} immagini.`);
-  };
+    setProgress(0);
+    showToast(`Salvataggio completato per ${successCount} di ${toSave.length} immagini.`);
+    if (onlySelected) {
+      clearImageSelection();
+    }
+  };;
 
   const handleUpdateKeyword = (action, keyword) => {
     if (!selectedImage) return;
@@ -419,7 +825,8 @@ export default function App() {
       metadata: {
         ...selectedImage.metadata,
         keywords: updatedKeywords
-      }
+      },
+      analyzed: true
     };
     
     setSelectedImage(updatedImg);
@@ -433,40 +840,21 @@ export default function App() {
       metadata: {
         ...selectedImage.metadata,
         [field]: value
-      }
+      },
+      analyzed: true
     };
     setSelectedImage(updatedImg);
     setImages(images.map(img => img.path === selectedImage.path ? updatedImg : img));
   };
 
-  const rebuildMatcherFromLocalStorage = () => {
-    try {
-      const saved = localStorage.getItem('trained_people');
-      if (!saved) return;
-      const peopleList = JSON.parse(saved);
-      const activePeople = peopleList.filter(p => p.descriptors && p.descriptors.length > 0);
-      if (activePeople.length === 0) {
-        setFaceMatcher(null);
-        return;
-      }
-      const labeledDescriptors = activePeople.map(p => {
-        const floatDescriptors = p.descriptors.map(d => new Float32Array(d));
-        return new faceapi.LabeledFaceDescriptors(p.name, floatDescriptors);
-      });
-      const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
-      setFaceMatcher(matcher);
-    } catch (err) {
-      console.error('Error rebuilding matcher in App:', err);
-    }
-  };
+  // rebuildMatcherFromLocalStorage is replaced by rebuildMatcher
 
   const handleManualAddFace = () => {
     if (!selectedImage) return;
-    const imageSrc = `${API_BASE}/api/image?path=${encodeURIComponent(selectedImage.path)}`;
+    const imageSrc = `${API_BASE}/api/image?path=${encodeURIComponent(selectedImage.path)}&size=preview`;
     
     // Get first person in the trained list to set as default select option
-    const saved = localStorage.getItem('trained_people');
-    const trainedPeopleList = saved ? JSON.parse(saved) : [
+    const trainedPeopleList = people.length > 0 ? people : [
       { name: 'Mattia', photos: [], descriptors: [] },
       { name: 'Tiziana', photos: [], descriptors: [] },
       { name: 'Samuele', photos: [], descriptors: [] }
@@ -505,6 +893,231 @@ export default function App() {
     setIsManualDragging(false);
   };
 
+  const handleIdentifyFace = async (faceIndex, chosenName) => {
+    if (!selectedImage || !selectedImage.metadata || !selectedImage.metadata.faces) return;
+    
+    let name = chosenName;
+    if (name === 'new') {
+      const promptName = prompt("Inserisci il nome della nuova persona:");
+      if (!promptName || !promptName.trim()) return;
+      name = promptName.trim();
+    }
+
+    setAnalyzingSingle(true);
+
+    try {
+      const face = selectedImage.metadata.faces[faceIndex];
+      if (!face) return;
+
+      // 1. Crop face from original image to create thumbnail
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = `${API_BASE}/api/image?path=${encodeURIComponent(selectedImage.path)}&size=preview`;
+      await new Promise((resolve) => (img.onload = resolve));
+
+      // Bounding box of the face
+      const box = face.box || { x: 0, y: 0, width: img.width, height: img.height };
+      
+      // Add 25% padding to the bounding box to give context
+      const padX = box.width * 0.25;
+      const padY = box.height * 0.25;
+      const cx = Math.max(0, box.x - padX);
+      const cy = Math.max(0, box.y - padY);
+      const cw = Math.min(img.width - cx, box.width + padX * 2);
+      const ch = Math.min(img.height - cy, box.height + padY * 2);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
+
+      // Create an 80x80 thumbnail for the "Volti" list
+      const thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = 80;
+      thumbCanvas.height = 80;
+      const thumbCtx = thumbCanvas.getContext('2d');
+      thumbCtx.drawImage(canvas, 0, 0, 80, 80);
+      const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.8);
+
+      // 2. Save the face descriptor and photo to the people database
+      let trainedPeopleList = people.length > 0 ? [...people] : [
+        { name: 'Mattia', photos: [], descriptors: [] },
+        { name: 'Tiziana', photos: [], descriptors: [] },
+        { name: 'Samuele', photos: [], descriptors: [] }
+      ];
+
+      let targetPerson = trainedPeopleList.find(p => p.name.toLowerCase() === name.toLowerCase());
+      if (!targetPerson) {
+        targetPerson = { name, photos: [], descriptors: [] };
+        trainedPeopleList.push(targetPerson);
+      }
+
+      // If we have the descriptor, save it to the face matcher database!
+      if (face.descriptor) {
+        targetPerson.photos.push(thumbBase64);
+        targetPerson.descriptors.push(face.descriptor);
+      }
+
+      await updatePeopleList(trainedPeopleList);
+
+      // 3. Update the metadata in the React state for this image
+      const updatedMeta = { ...selectedImage.metadata };
+      const facesList = [...(updatedMeta.faces || [])];
+      
+      // Update this face's name and set confidence to 100%
+      facesList[faceIndex] = {
+        ...face,
+        name,
+        confidence: 100
+      };
+      updatedMeta.faces = facesList;
+
+      // Add to keywords if not already there, removing Sconosciuto
+      const keywordsList = [...(updatedMeta.keywords || [])];
+      const filteredKeywords = keywordsList.filter(k => 
+        k.toLowerCase() !== 'sconosciuto' && 
+        k.toLowerCase() !== 'unknown'
+      );
+      if (!filteredKeywords.includes(name)) {
+        filteredKeywords.push(name);
+      }
+      updatedMeta.keywords = filteredKeywords;
+
+      // Dynamically update title and description based on names found in the text
+      const allRegisteredNames = trainedPeopleList.map(p => p.name);
+      let title = updatedMeta.title || "";
+      let description = updatedMeta.description || "";
+
+      // Find which registered names are actually present in the title
+      const namesInTitle = allRegisteredNames.filter(n => {
+        if (!n) return false;
+        return title.toLowerCase().includes(n.toLowerCase());
+      });
+
+      // Ensure the newly identified name is included
+      const uniqueNewNamesInTitle = [...namesInTitle];
+      if (!uniqueNewNamesInTitle.some(n => n.toLowerCase() === name.toLowerCase())) {
+        uniqueNewNamesInTitle.push(name);
+      }
+
+      const oldNamesTitleFormatted = formatNamesItalian(namesInTitle);
+      const newNamesTitleFormatted = formatNamesItalian(uniqueNewNamesInTitle);
+
+      if (oldNamesTitleFormatted && title.toLowerCase().includes(oldNamesTitleFormatted.toLowerCase())) {
+        title = replaceCaseInsensitive(title, oldNamesTitleFormatted, newNamesTitleFormatted);
+      } else {
+        const updatedTitle = replaceGenericTerms(title, newNamesTitleFormatted);
+        if (updatedTitle !== title) {
+          title = updatedTitle;
+        } else {
+          if (title) {
+            title = `${newNamesTitleFormatted} - ${title}`;
+          } else {
+            title = newNamesTitleFormatted;
+          }
+        }
+      }
+
+      // Description
+      const namesInDesc = allRegisteredNames.filter(n => {
+        if (!n) return false;
+        return description.toLowerCase().includes(n.toLowerCase());
+      });
+
+      const uniqueNewNamesInDesc = [...namesInDesc];
+      if (!uniqueNewNamesInDesc.some(n => n.toLowerCase() === name.toLowerCase())) {
+        uniqueNewNamesInDesc.push(name);
+      }
+
+      const oldNamesDescFormatted = formatNamesItalian(namesInDesc);
+      const newNamesDescFormatted = formatNamesItalian(uniqueNewNamesInDesc);
+
+      if (oldNamesDescFormatted && description.toLowerCase().includes(oldNamesDescFormatted.toLowerCase())) {
+        description = replaceCaseInsensitive(description, oldNamesDescFormatted, newNamesDescFormatted);
+      } else {
+        const updatedDesc = replaceGenericTerms(description, newNamesDescFormatted);
+        if (updatedDesc !== description) {
+          description = updatedDesc;
+        } else {
+          if (description) {
+            description = `${newNamesDescFormatted}: ${description}`;
+          }
+        }
+      }
+
+      updatedMeta.title = title;
+      updatedMeta.description = description;
+
+      const updatedImage = {
+        ...selectedImage,
+        metadata: updatedMeta,
+        analyzed: true
+      };
+
+      setSelectedImage(updatedImage);
+      setImages(images.map(img => img.path === selectedImage.path ? updatedImage : img));
+      
+      // Save updated metadata to backend!
+      await saveImageMetadata(updatedImage);
+
+      showToast(`Volto associato a ${name} con successo!`);
+    } catch (err) {
+      console.error("Error identifying face:", err);
+      showToast("Errore durante l'associazione del volto.", "error");
+    } finally {
+      setAnalyzingSingle(false);
+    }
+  };
+
+  const handleRemoveFace = async (faceIndex) => {
+    if (!selectedImage || !selectedImage.metadata || !selectedImage.metadata.faces) return;
+
+    try {
+      const updatedMeta = { ...selectedImage.metadata };
+      const facesList = [...(updatedMeta.faces || [])];
+      
+      const removedFace = facesList.splice(faceIndex, 1)[0];
+      const name = removedFace.name;
+
+      updatedMeta.faces = facesList;
+
+      // 1. Remove the name from keywords if it's no longer present in other faces
+      const nameStillExists = facesList.some(f => f.name && f.name.trim().toLowerCase() === name.trim().toLowerCase());
+      if (!nameStillExists && name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
+        const keywordsList = [...(updatedMeta.keywords || [])];
+        updatedMeta.keywords = keywordsList.filter(k => k && k.trim().toLowerCase() !== name.trim().toLowerCase());
+      }
+
+      // 2. Remove the name from the title & description if present and not in other faces
+      let title = updatedMeta.title || "";
+      let description = updatedMeta.description || "";
+
+      if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown' && !nameStillExists) {
+        title = cleanNameFromText(title, name);
+        description = cleanNameFromText(description, name);
+      }
+
+      updatedMeta.title = title;
+      updatedMeta.description = description;
+
+      const updatedImage = {
+        ...selectedImage,
+        metadata: updatedMeta,
+        analyzed: true
+      };
+
+      setSelectedImage(updatedImage);
+      setImages(images.map(img => img.path === selectedImage.path ? updatedImage : img));
+
+      await saveImageMetadata(updatedImage);
+
+    } catch (err) {
+      console.error("Error removing face:", err);
+      showToast("Errore durante la rimozione della persona.", "error");
+    }
+  };
+
   const handleSaveManualCrop = async () => {
     const canvas = manualCanvasRef.current;
     if (!canvas || !manualDragStart || !manualDragEnd) {
@@ -533,6 +1146,7 @@ export default function App() {
     try {
       const tempCanvas = document.createElement('canvas');
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.src = manualCropImage;
       await new Promise((resolve) => (img.onload = resolve));
 
@@ -574,71 +1188,160 @@ export default function App() {
       await new Promise((resolve) => (cropImgElement.onload = resolve));
 
       await loadFaceApiModels();
-      const detection = await faceapi.detectSingleFace(cropImgElement, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 }))
-        .withFaceLandmarks()
-        .withFaceDescriptor();
+      let detection = null;
+      try {
+        detection = await faceapi.detectSingleFace(cropImgElement, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+      } catch (detErr) {
+        console.error("Error detecting face in cropped region:", detErr);
+      }
 
+      // We ALWAYS proceed with tagging and title/description update, even if face-api fails to extract landmarks!
+      let trainedPeopleList = people.length > 0 ? [...people] : [
+        { name: 'Mattia', photos: [], descriptors: [] },
+        { name: 'Tiziana', photos: [], descriptors: [] },
+        { name: 'Samuele', photos: [], descriptors: [] }
+      ];
+
+      let targetPerson = trainedPeopleList.find(p => p.name.toLowerCase() === name.toLowerCase());
+      if (!targetPerson) {
+        targetPerson = { name, photos: [], descriptors: [] };
+        trainedPeopleList.push(targetPerson);
+      }
+      const thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = 80;
+      thumbCanvas.height = 80;
+      const thumbCtx = thumbCanvas.getContext('2d');
+      thumbCtx.drawImage(cropImgElement, 0, 0, 80, 80);
+      const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.8);
+
+      // Only save to faceMatcher database if we got a valid descriptor
       if (detection) {
-        // 1. Save to trained_people in localStorage
-        const saved = localStorage.getItem('trained_people');
-        let trainedPeopleList = saved ? JSON.parse(saved) : [
-          { name: 'Mattia', photos: [], descriptors: [] },
-          { name: 'Tiziana', photos: [], descriptors: [] },
-          { name: 'Samuele', photos: [], descriptors: [] }
-        ];
-
-        let targetPerson = trainedPeopleList.find(p => p.name.toLowerCase() === name.toLowerCase());
-        if (!targetPerson) {
-          targetPerson = { name, photos: [], descriptors: [] };
-          trainedPeopleList.push(targetPerson);
-        }
-        const thumbCanvas = document.createElement('canvas');
-        thumbCanvas.width = 80;
-        thumbCanvas.height = 80;
-        const thumbCtx = thumbCanvas.getContext('2d');
-        thumbCtx.drawImage(cropImgElement, 0, 0, 80, 80);
-        const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.8);
-
         targetPerson.photos.push(thumbBase64);
         targetPerson.descriptors.push(Array.from(detection.descriptor));
-        localStorage.setItem('trained_people', JSON.stringify(trainedPeopleList));
+      }
 
-        // 2. Rebuild the Face Matcher in memory
-        rebuildMatcherFromLocalStorage();
+      await updatePeopleList(trainedPeopleList);
 
-        // 3. Update the metadata in the React state for this image
-        const updatedMeta = { ...(selectedImage.metadata || {}) };
-        
-        // Add to detected faces list if not already there
-        const facesList = [...(updatedMeta.faces || [])];
+      // 3. Update the metadata in the React state for this image
+      const updatedMeta = { ...(selectedImage.metadata || {}) };
+      
+      // Add to detected faces list, and replace one "Sconosciuto" or "unknown" if present
+      const facesList = [...(updatedMeta.faces || [])];
+      const sconosciutoIdx = facesList.findIndex(f => 
+        f.name.toLowerCase() === 'sconosciuto' || 
+        f.name.toLowerCase() === 'unknown'
+      );
+      
+      if (sconosciutoIdx > -1) {
+        facesList[sconosciutoIdx] = { name, confidence: 100 };
+      } else {
         if (!facesList.some(f => f.name.toLowerCase() === name.toLowerCase())) {
           facesList.push({ name, confidence: 100 });
         }
-        updatedMeta.faces = facesList;
+      }
+      updatedMeta.faces = facesList;
 
-        // Add to keywords if not already there
-        const keywordsList = [...(updatedMeta.keywords || [])];
-        if (!keywordsList.includes(name)) {
-          keywordsList.push(name);
-        }
-        updatedMeta.keywords = keywordsList;
+      // Add to keywords if not already there
+      const keywordsList = [...(updatedMeta.keywords || [])];
+      
+      // Also remove Sconosciuto/unknown from keywords if it was there
+      const filteredKeywords = keywordsList.filter(k => 
+        k.toLowerCase() !== 'sconosciuto' && 
+        k.toLowerCase() !== 'unknown'
+      );
+      
+      if (!filteredKeywords.includes(name)) {
+        filteredKeywords.push(name);
+      }
+      updatedMeta.keywords = filteredKeywords;
 
-        const updatedImage = {
-          ...selectedImage,
-          metadata: updatedMeta,
-          analyzed: true
-        };
+      // Dynamically update title and description based on names found in the text
+      const allRegisteredNames = trainedPeopleList.map(p => p.name);
+      let title = updatedMeta.title || "";
+      let description = updatedMeta.description || "";
 
-        setSelectedImage(updatedImage);
-        setImages(images.map(img => img.path === selectedImage.path ? updatedImage : img));
-        setShowManualCropModal(false);
-        alert(`Volto di ${name} registrato ed aggiunto con successo!`);
+      // Find which registered names are actually present in the title (case-insensitive)
+      const namesInTitle = allRegisteredNames.filter(n => {
+        if (!n) return false;
+        return title.toLowerCase().includes(n.toLowerCase());
+      });
+
+      // Ensure the newly registered name is included in the new names list
+      const uniqueNewNamesInTitle = [...namesInTitle];
+      if (!uniqueNewNamesInTitle.some(n => n.toLowerCase() === name.toLowerCase())) {
+        uniqueNewNamesInTitle.push(name);
+      }
+
+      const oldNamesTitleFormatted = formatNamesItalian(namesInTitle);
+      const newNamesTitleFormatted = formatNamesItalian(uniqueNewNamesInTitle);
+
+      if (oldNamesTitleFormatted && title.toLowerCase().includes(oldNamesTitleFormatted.toLowerCase())) {
+        title = replaceCaseInsensitive(title, oldNamesTitleFormatted, newNamesTitleFormatted);
       } else {
-        alert("Nessun volto rilevato in questa area. Centra meglio il viso includendo occhi e naso.");
+        // Try to replace generic terms like "un uomo", "madre e figlio", etc. with the new names
+        const updatedTitle = replaceGenericTerms(title, newNamesTitleFormatted);
+        if (updatedTitle !== title) {
+          title = updatedTitle;
+        } else {
+          // Fallback: prepend
+          if (title) {
+            title = `${newNamesTitleFormatted} - ${title}`;
+          } else {
+            title = newNamesTitleFormatted;
+          }
+        }
+      }
+
+      // Do the same for description!
+      const namesInDesc = allRegisteredNames.filter(n => {
+        if (!n) return false;
+        return description.toLowerCase().includes(n.toLowerCase());
+      });
+
+      const uniqueNewNamesInDesc = [...namesInDesc];
+      if (!uniqueNewNamesInDesc.some(n => n.toLowerCase() === name.toLowerCase())) {
+        uniqueNewNamesInDesc.push(name);
+      }
+
+      const oldNamesDescFormatted = formatNamesItalian(namesInDesc);
+      const newNamesDescFormatted = formatNamesItalian(uniqueNewNamesInDesc);
+
+      if (oldNamesDescFormatted && description.toLowerCase().includes(oldNamesDescFormatted.toLowerCase())) {
+        description = replaceCaseInsensitive(description, oldNamesDescFormatted, newNamesDescFormatted);
+      } else {
+        const updatedDesc = replaceGenericTerms(description, newNamesDescFormatted);
+        if (updatedDesc !== description) {
+          description = updatedDesc;
+        } else {
+          if (description) {
+            description = `${newNamesDescFormatted}: ${description}`;
+          }
+        }
+      }
+
+      updatedMeta.title = title;
+      updatedMeta.description = description;
+
+      const updatedImage = {
+        ...selectedImage,
+        metadata: updatedMeta,
+        analyzed: true
+      };
+
+      setSelectedImage(updatedImage);
+      setImages(images.map(img => img.path === selectedImage.path ? updatedImage : img));
+      setShowManualCropModal(false);
+
+      if (detection) {
+        showToast(`Volto di ${name} registrato con successo!`);
+      } else {
+        showToast(`Tag "${name}" aggiunto con successo!`);
       }
     } catch (err) {
       console.error(err);
-      alert("Errore durante il rilevamento e la registrazione.");
+      showToast("Errore durante la registrazione del volto.", "error");
     } finally {
       setAnalyzingSingle(false);
     }
@@ -651,6 +1354,7 @@ export default function App() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.src = manualCropImage;
     img.onload = () => {
       const maxWidth = Math.min(window.innerWidth - 60, 500);
@@ -734,7 +1438,14 @@ export default function App() {
               value={dirPath}
               onChange={(e) => setDirPath(e.target.value)}
             />
-            <button className="btn btn-secondary" style={{ width: '100%' }} onClick={handleScanFolder}>Carica Foto</button>
+            <button 
+              className="btn btn-secondary" 
+              style={{ width: '100%' }} 
+              onClick={handleScanFolder}
+              disabled={isScanning}
+            >
+              {isScanning ? '⏳ Scansione...' : 'Carica Foto'}
+            </button>
           </div>
 
           <div className="sidebar-header">Impostazioni</div>
@@ -762,12 +1473,61 @@ export default function App() {
           </div>
           {activeTab === 'photos' && images.length > 0 && (
             <div className="toolbar-actions">
-              <button className="btn btn-secondary" onClick={runBatchTagging} disabled={processing}>
-                ⚙️ Analizza Tutto (Batch)
-              </button>
-              <button className="btn btn-primary" onClick={saveAllMetadata} disabled={processing}>
-                💾 Salva su File
-              </button>
+              {selectedImagePaths.size > 0 ? (
+                <>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => runBatchTagging(true)} 
+                    disabled={processing}
+                    style={{ backgroundColor: 'var(--accent-color)', color: '#fff' }}
+                  >
+                    🤖 Analizza {selectedImagePaths.size} Selezionate
+                  </button>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => saveAllMetadata(true)} 
+                    disabled={processing}
+                  >
+                    💾 Salva {selectedImagePaths.size} Selezionate
+                  </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={clearImageSelection} 
+                    disabled={processing}
+                    style={{ border: '1px solid var(--border-color)', background: 'transparent' }}
+                  >
+                    Annulla Selezione
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="btn btn-secondary" onClick={() => runBatchTagging(false)} disabled={processing}>
+                    ⚙️ Analizza Tutto (Batch)
+                  </button>
+                  {selectedImage && (
+                    <button 
+                      className="btn btn-success" 
+                      style={{ backgroundColor: 'var(--success-color)', borderColor: 'var(--success-color)', color: '#fff' }}
+                      onClick={async () => {
+                        setProcessing(true);
+                        const success = await saveImageMetadata(selectedImage);
+                        setProcessing(false);
+                        if (success) {
+                          showToast(`Metadati di "${selectedImage.name}" salvati!`);
+                        } else {
+                          showToast("Errore durante il salvataggio dei metadati.", "error");
+                        }
+                      }}
+                      disabled={processing}
+                    >
+                      💾 Salva Selezionata
+                    </button>
+                  )}
+                  <button className="btn btn-primary" onClick={() => saveAllMetadata(false)} disabled={processing}>
+                    💾 Salva Tutte ({images.filter(img => img.analyzed).length})
+                  </button>
+                </>
+              )}
             </div>
           )}
         </header>
@@ -785,6 +1545,13 @@ export default function App() {
         )}
 
         <div className="grid-container">
+          {isScanning && (
+            <div className="glass-overlay">
+              <div className="spinner"></div>
+              <h3 style={{ margin: '8px 0 0 0', fontWeight: 600 }}>Scansione in corso...</h3>
+              <p style={{ fontSize: '13px', opacity: 0.8, marginTop: '4px' }}>Analisi dei file nella cartella in corso.</p>
+            </div>
+          )}
           {activeTab === 'photos' && (
             images.length === 0 ? (
               <div 
@@ -804,11 +1571,30 @@ export default function App() {
                   <div 
                     key={img.path} 
                     className={`photo-card ${selectedImage?.path === img.path ? 'selected' : ''}`}
-                    onClick={() => setSelectedImage(img)}
+                    onClick={() => handleSelectImage(img)}
                   >
-                    <div className="photo-thumb-container">
+                    <div className="photo-thumb-container" style={{ position: 'relative' }}>
+                      <input 
+                        type="checkbox"
+                        checked={selectedImagePaths.has(img.path)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleImageSelection(img.path);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '8px',
+                          left: '8px',
+                          zIndex: 10,
+                          width: '18px',
+                          height: '18px',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          accentColor: 'var(--accent-color)'
+                        }}
+                      />
                       <img 
-                        src={`${API_BASE}/api/image?path=${encodeURIComponent(img.path)}`} 
+                        src={`${API_BASE}/api/image?path=${encodeURIComponent(img.path)}&size=thumbnail`} 
                         alt={img.name} 
                         className="photo-thumb" 
                       />
@@ -831,7 +1617,11 @@ export default function App() {
 
           {activeTab === 'faces' && (
             <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-              <FaceTrainer onMatcherUpdated={setFaceMatcher} />
+              <FaceTrainer 
+                people={people} 
+                onPeopleUpdated={updatePeopleList} 
+                onMatcherUpdated={setFaceMatcher} 
+              />
             </div>
           )}
 
@@ -847,10 +1637,10 @@ export default function App() {
       {activeTab === 'photos' && selectedImage && (
         <aside className="inspector glass">
           <div className="inspector-section" style={{ textAlign: 'center' }}>
-            <img 
-              src={`${API_BASE}/api/image?path=${encodeURIComponent(selectedImage.path)}`} 
-              alt="Anteprima" 
-              style={{ maxWidth: '100%', maxHeight: '180px', borderRadius: '8px', objectFit: 'contain', background: '#000' }}
+            <ImageWithFaceOverlays 
+              imagePath={selectedImage.path} 
+              faces={selectedImage.metadata?.faces || []} 
+              hoveredFaceIndex={hoveredFaceIndex} 
             />
             <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px', wordBreak: 'break-all' }}>
               {selectedImage.path}
@@ -927,11 +1717,68 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {(selectedImage.metadata?.faces || []).map((face, index) => (
-                <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', background: 'var(--input-bg)', padding: '6px 10px', borderRadius: '6px' }}>
+                <div 
+                  key={index} 
+                  style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    fontSize: '12px', 
+                    background: 'var(--input-bg)', 
+                    padding: '6px 10px', 
+                    borderRadius: '6px',
+                    border: hoveredFaceIndex === index ? '1px solid var(--accent-color)' : '1px solid transparent',
+                    boxShadow: hoveredFaceIndex === index ? '0 0 6px rgba(var(--accent-color-rgb), 0.3)' : 'none',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={() => setHoveredFaceIndex(index)}
+                  onMouseLeave={() => setHoveredFaceIndex(null)}
+                >
                   <span style={{ fontWeight: '500' }}>👤 {face.name}</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>
-                    {face.confidence ? `confidenza: ${face.confidence}%` : 'aggiunto manualmente'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {(face.name === 'Sconosciuto' || face.name === 'unknown') ? (
+                      <select
+                        className="form-select"
+                        style={{ padding: '2px 4px', fontSize: '11px', borderRadius: '4px', maxWidth: '120px', cursor: 'pointer', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleIdentifyFace(index, e.target.value);
+                          }
+                        }}
+                      >
+                        <option value="" disabled>Identifica...</option>
+                        {people.map(p => (
+                          <option key={p.name} value={p.name}>{p.name}</option>
+                        ))}
+                        <option value="new">+ Nuova persona...</option>
+                      </select>
+                    ) : (
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {face.confidence ? `confidenza: ${face.confidence}%` : 'aggiunto manual.'}
+                      </span>
+                    )}
+                    <button
+                      title="Rimuovi persona rilevata"
+                      onClick={() => handleRemoveFace(index)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#ff4d4d',
+                        fontSize: '16px',
+                        cursor: 'pointer',
+                        padding: '2px 4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '4px',
+                        transition: 'background 0.2s',
+                        marginLeft: '4px'
+                      }}
+                    >
+                      ⊖
+                    </button>
+                  </div>
                 </div>
               ))}
               {(!selectedImage.metadata?.faces || selectedImage.metadata.faces.length === 0) && (
@@ -968,10 +1815,6 @@ export default function App() {
             style={{ width: '100%', marginTop: '10px' }}
             disabled={analyzingSingle}
             onClick={() => {
-              if (selectedImage.analyzed) {
-                const overwrite = confirm("Questa foto è già stata elaborata. Vuoi sovrascriverla?");
-                if (!overwrite) return;
-              }
               setAnalyzingSingle(true);
               analyzeImage(selectedImage).then(meta => {
                 setAnalyzingSingle(false);
@@ -979,17 +1822,36 @@ export default function App() {
                   const updated = { ...selectedImage, metadata: meta, analyzed: true };
                   setSelectedImage(updated);
                   setImages(images.map(img => img.path === selectedImage.path ? updated : img));
+                  showToast("Foto rielaborata con successo!");
                 } else {
-                  alert("Impossibile analizzare la foto. Controlla la console del browser o del server per i dettagli.");
+                  showToast("Impossibile analizzare la foto.", "error");
                 }
               }).catch((err) => {
                 setAnalyzingSingle(false);
                 console.error(err);
-                alert("Errore di rete o del server durante l'analisi.");
+                showToast("Errore durante l'analisi della foto.", "error");
               });
             }}
           >
             {analyzingSingle ? '⏳ Analisi in corso...' : '🔄 Rielabora Singola Foto'}
+          </button>
+
+          <button 
+            className="btn btn-success" 
+            style={{ width: '100%', marginTop: '10px', backgroundColor: 'var(--success-color)', borderColor: 'var(--success-color)', color: '#fff' }}
+            disabled={processing || analyzingSingle}
+            onClick={async () => {
+              setProcessing(true);
+              const success = await saveImageMetadata(selectedImage);
+              setProcessing(false);
+              if (success) {
+                showToast(`Metadati di "${selectedImage.name}" salvati su disco!`);
+              } else {
+                showToast("Errore durante il salvataggio dei metadati.", "error");
+              }
+            }}
+          >
+            💾 Salva Foto Corrente
           </button>
         </aside>
       )}
@@ -1035,8 +1897,7 @@ export default function App() {
                 onChange={(e) => setSelectedPersonForCrop(e.target.value)}
               >
                 {(() => {
-                  const saved = localStorage.getItem('trained_people');
-                  const list = saved ? JSON.parse(saved) : [
+                  const list = people.length > 0 ? people : [
                     { name: 'Mattia' }, { name: 'Tiziana' }, { name: 'Samuele' }
                   ];
                   return list.map(p => (
@@ -1099,6 +1960,25 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Toast Notification Container */}
+      <div className="toast-container" style={{ position: 'fixed', bottom: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 99999 }}>
+        {toasts.map(t => (
+          <div key={t.id} className={`toast toast-${t.type}`} style={{
+            background: t.type === 'error' ? 'rgba(255, 77, 77, 0.95)' : 'rgba(0, 122, 255, 0.95)',
+            color: '#fff',
+            padding: '10px 18px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            fontSize: '13px',
+            fontWeight: '500',
+            backdropFilter: 'blur(8px)',
+            transition: 'all 0.2s ease-in-out'
+          }}>
+            {t.message}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

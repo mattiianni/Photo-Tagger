@@ -53,7 +53,7 @@ export async function createFaceMatcher(peopleList) {
   }
   
   // Create a matcher with a threshold (distance metric, default 0.6. Lower is stricter)
-  return new faceapi.FaceMatcher(labeledDescriptors, 0.55);
+  return new faceapi.FaceMatcher(labeledDescriptors, 0.70);
 }
 
 /**
@@ -84,18 +84,30 @@ export async function detectAndMatchFaces(imageInput, matcher) {
     return detections.map(d => ({
       name: 'Sconosciuto',
       distance: 1.0,
-      box: d.detection.box
+      box: {
+        x: d.detection.box.x,
+        y: d.detection.box.y,
+        width: d.detection.box.width,
+        height: d.detection.box.height
+      },
+      descriptor: Array.from(d.descriptor)
     }));
   }
   
   return detections.map(d => {
     const bestMatch = matcher.findBestMatch(d.descriptor);
+    const resolvedName = bestMatch.label === 'unknown' ? 'Sconosciuto' : bestMatch.label;
     return {
-      name: bestMatch.label,
+      name: resolvedName,
       distance: bestMatch.distance,
-      // Confidence score as a percentage (1 - distance)
       confidence: Math.round((1 - bestMatch.distance) * 100),
-      box: d.detection.box
+      box: {
+        x: d.detection.box.x,
+        y: d.detection.box.y,
+        width: d.detection.box.width,
+        height: d.detection.box.height
+      },
+      descriptor: Array.from(d.descriptor)
     };
   });
 }

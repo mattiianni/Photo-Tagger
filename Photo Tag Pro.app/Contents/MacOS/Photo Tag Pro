@@ -2,32 +2,57 @@
 # Move to the project root directory relative to the app bundle location
 cd "$(dirname "$0")/../../.."
 
-# Set PATH to include standard Node and npm paths on macOS (since GUI launched apps don't inherit shell PATH!)
+# Redirect stdout and stderr to a log file for troubleshooting
+exec > app_startup.log 2>&1
+
+echo "=== Starting Photo Tag Pro ==="
+echo "Date: $(date)"
+echo "Current directory: $(pwd)"
+
+# Set PATH to include standard Node and npm paths on macOS
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# Check if node is installed
+if ! command -v node &> /dev/null; then
+  echo "Error: Node.js is not installed or not in PATH."
+  echo "PATH is: $PATH"
+  osascript -e 'display alert "Photo Tag Pro Error" message "Node.js non è installato o non è stato trovato. Per favore installa Node.js per avviare l'\''applicazione."'
+  exit 1
+fi
 
 # First check if backend dependencies are installed, if not install them
 if [ ! -d "backend/node_modules" ]; then
+  echo "Installing backend dependencies..."
   npm install --prefix backend
 fi
 
 # Build the frontend if dist does not exist
 if [ ! -d "frontend/dist" ]; then
+  echo "Building frontend..."
   npm install --prefix frontend
   npm run build --prefix frontend
 fi
 
-# Kill any existing server running on 3001
-npx kill-port 3001
+# Kill any existing server running on 3001 using native tools
+echo "Checking port 3001..."
+PORT_PID=$(lsof -t -i :3001)
+if [ ! -z "$PORT_PID" ]; then
+  echo "Killing existing process on port 3001 (PID: $PORT_PID)..."
+  kill -9 $PORT_PID
+fi
 
-# Start the node server
+# Start the node server in background and disown it
+echo "Starting backend server..."
 node backend/server.js &
 SERVER_PID=$!
+disown $SERVER_PID
 
 # Wait 2 seconds for the server to spin up
 sleep 2
 
 # Open default browser
+echo "Opening browser at http://localhost:3001..."
 open http://localhost:3001
 
-# Wait for node server
-wait $SERVER_PID
+# Exit immediately
+exit 0
