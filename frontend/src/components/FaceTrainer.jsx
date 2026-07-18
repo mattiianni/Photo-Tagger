@@ -167,15 +167,23 @@ export default function FaceTrainer({ onMatcherUpdated }) {
       return;
     }
     
-    const x = Math.min(dragStart.x, dragEnd.x);
-    const y = Math.min(dragStart.y, dragEnd.y);
-    const w = Math.abs(dragStart.x - dragEnd.x);
-    const h = Math.abs(dragStart.y - dragEnd.y);
+    let x = Math.min(dragStart.x, dragEnd.x);
+    let y = Math.min(dragStart.y, dragEnd.y);
+    let w = Math.abs(dragStart.x - dragEnd.x);
+    let h = Math.abs(dragStart.y - dragEnd.y);
     
     if (w < 15 || h < 15) {
       alert("Seleziona un'area del volto più grande.");
       return;
     }
+
+    // Add 25% padding on all sides to give face-api some head context
+    const paddingX = w * 0.25;
+    const paddingY = h * 0.25;
+    x = Math.max(0, x - paddingX);
+    y = Math.max(0, y - paddingY);
+    w = Math.min(canvas.width - x, w + paddingX * 2);
+    h = Math.min(canvas.height - y, h + paddingY * 2);
     
     setTraining(true);
     setStatusMessage(`Analisi del volto per ${people[targetPersonIndex].name}...`);
@@ -216,7 +224,7 @@ export default function FaceTrainer({ onMatcherUpdated }) {
       await new Promise((resolve) => (cropImgElement.onload = resolve));
       
       await loadFaceApiModels();
-      const detection = await faceapi.detectSingleFace(cropImgElement)
+      const detection = await faceapi.detectSingleFace(cropImgElement, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
         
