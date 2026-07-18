@@ -217,6 +217,7 @@ export default function App() {
   const [customPersonName, setCustomPersonName] = useState('');
   const [toasts, setToasts] = useState([]);
   const [selectedImagePaths, setSelectedImagePaths] = useState(new Set());
+  const [filterState, setFilterState] = useState('all'); // 'all', 'analyzed', 'new', 'pending'
 
   const showToast = (message, type = 'success') => {
     const id = Date.now() + Math.random();
@@ -1588,10 +1589,25 @@ export default function App() {
       {/* Main Content Pane */}
       <main className="main-content">
         <header className="toolbar">
-          <div className="toolbar-title">
-            {activeTab === 'photos' && `Libreria Fotografica (${images.length} foto)`}
-            {activeTab === 'faces' && 'Gestione Volti (Addestramento)'}
-            {activeTab === 'travel-db' && 'Modifica Database dei Luoghi'}
+          <div className="toolbar-title" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span>
+              {activeTab === 'photos' && `Libreria Fotografica (${images.length} foto)`}
+              {activeTab === 'faces' && 'Gestione Volti (Addestramento)'}
+              {activeTab === 'travel-db' && 'Modifica Database dei Luoghi'}
+            </span>
+            {activeTab === 'photos' && images.length > 0 && (
+              <select
+                className="form-input"
+                style={{ fontSize: '12px', padding: '4px 8px', width: '140px', minHeight: 'unset' }}
+                value={filterState}
+                onChange={(e) => setFilterState(e.target.value)}
+              >
+                <option value="all">Tutte le foto</option>
+                <option value="new">🟢 Nuove</option>
+                <option value="pending">🟠 In Attesa</option>
+                <option value="analyzed">🔵 Analizzate</option>
+              </select>
+            )}
           </div>
           {activeTab === 'photos' && images.length > 0 && (
             <div className="toolbar-actions">
@@ -1719,7 +1735,13 @@ export default function App() {
               </div>
             ) : (
               <div className="photo-grid">
-                {images.map(img => (
+                {images.filter(img => {
+                  if (filterState === 'all') return true;
+                  if (filterState === 'new') return img.isNew;
+                  if (filterState === 'analyzed') return img.analyzed && !img.isNew;
+                  if (filterState === 'pending') return !img.analyzed && !img.isNew;
+                  return true;
+                }).map(img => (
                   <div 
                     key={img.path} 
                     className={`photo-card ${selectedImage?.path === img.path ? 'selected' : ''}`}
