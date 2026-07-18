@@ -44,8 +44,7 @@ fi
 # Start the node server in background via osascript to decouple it from launchd reaping
 echo "Starting backend server..."
 PROJECT_ROOT=$(pwd)
-osascript -e "do shell script \"cd '$PROJECT_ROOT' && node backend/server.js > /dev/null 2>&1 &\""
-
+osascript -e "do shell script \"cd '$PROJECT_ROOT' && node backend/server.js > backend_server.log 2>&1 &\""
 # Wait 2 seconds for the server to spin up
 sleep 2
 
