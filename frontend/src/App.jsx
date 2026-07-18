@@ -1653,7 +1653,7 @@ export default function App() {
                     </button>
                   )}
                   {images.some(img => img.isNew) && (
-                    <button className="btn btn-secondary" style={{ background: 'var(--success-color)', borderColor: 'var(--success-color)', color: '#fff', boxShadow: '0 4px 12px rgba(10, 132, 255, 0.4)' }} onClick={() => saveAllMetadata(false, true)}>
+                    <button className="btn btn-secondary" style={{ background: 'var(--success-color)', color: '#fff' }} onClick={() => saveAllMetadata(false, true)}>
                       💾 Salva Solo Nuove ({images.filter(img => img.isNew).length})
                     </button>
                   )}
@@ -1755,11 +1755,11 @@ export default function App() {
                       <div className="photo-name">{img.name}</div>
                       <div className="photo-status">
                         {img.isNew ? (
-                          <span className="badge badge-success" style={{background: 'var(--success-color)', color: '#fff'}}>Nuova</span>
+                          <span className="badge badge-success">Nuova</span>
                         ) : img.analyzed ? (
-                          <span className="badge badge-primary" style={{background: '#0a84ff', color: '#fff'}}>Analizzata</span>
+                          <span className="badge badge-primary">Analizzata</span>
                         ) : (
-                          <span className="badge badge-pending" style={{background: '#ff9f0a', color: '#fff'}}>In Attesa</span>
+                          <span className="badge badge-pending">In Attesa</span>
                         )}
                       </div>
                     </div>
@@ -2003,33 +2003,12 @@ export default function App() {
 
       {/* Manual Cropper Modal */}
       {showManualCropModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.85)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 9999,
-          padding: '20px'
-        }}>
-          <div className="glass" style={{
-            backgroundColor: 'rgba(30, 30, 30, 0.95)',
-            borderRadius: '16px',
-            padding: '24px',
-            maxWidth: '550px',
-            width: '100%',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            color: '#fff'
-          }}>
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '600px', width: '95%', padding: '24px' }}>
             <h3 style={{ marginTop: 0, marginBottom: '8px', fontSize: '18px', fontWeight: '600' }}>
               Aggiungi Volto Manualmente
             </h3>
-            <p style={{ fontSize: '13px', color: '#aaa', marginTop: 0, marginBottom: '16px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: 0, marginBottom: '16px' }}>
               Seleziona la persona e trascina il cursore sopra il suo volto per ritagliarlo ed addestrare l'app.
             </p>
 
@@ -2108,32 +2087,21 @@ export default function App() {
 
       {/* Analyze Prompt Modal */}
       {showAnalyzePrompt && (
-        <div className="modal-overlay" style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.85)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center',
-          zIndex: 9999, backdropFilter: 'blur(5px)'
-        }}>
-          <div className="modal-content" style={{
-            backgroundColor: '#1E1E1E', padding: '30px', borderRadius: '12px',
-            width: '90%', maxWidth: '450px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-            border: '1px solid var(--border-color)',
-            textAlign: 'center'
-          }}>
-            <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '1.4rem' }}>Modalità di Analisi</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '30px', fontSize: '1rem', lineHeight: '1.5' }}>
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', fontWeight: 600 }}>Modalità di Analisi</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '30px', fontSize: '14px', lineHeight: '1.4' }}>
               Hai già analizzato alcune foto in questa cartella. Vuoi analizzare TUTTE le foto (sovrascrivendo quelle già fatte) o SOLO QUELLE NON ELABORATE?
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <button 
                 className="btn btn-primary" 
                 onClick={() => {
                   setShowAnalyzePrompt(false);
                   runBatchTagging(false, false);
                 }}
-                style={{ width: '100%' }}
+                style={{ width: '100%', padding: '12px', fontSize: '14px' }}
               >
                 SOLO NON ELABORATE
               </button>
@@ -2143,14 +2111,14 @@ export default function App() {
                   setShowAnalyzePrompt(false);
                   runBatchTagging(false, true);
                 }}
-                style={{ width: '100%', borderColor: 'var(--border-color)' }}
+                style={{ width: '100%', padding: '12px', fontSize: '14px' }}
               >
                 TUTTE
               </button>
               <button 
-                className="btn btn-secondary" 
+                className="btn" 
                 onClick={() => setShowAnalyzePrompt(false)}
-                style={{ width: '100%', marginTop: '10px', background: 'transparent', border: 'none', color: 'var(--text-secondary)' }}
+                style={{ width: '100%', marginTop: '8px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontWeight: 500 }}
               >
                 Annulla
               </button>

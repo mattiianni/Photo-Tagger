@@ -376,33 +376,12 @@ export default function FaceTrainer({ people, onPeopleUpdated, onMatcherUpdated 
 
       {/* Cropper Modal */}
       {showModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.85)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 9999,
-          padding: '20px'
-        }}>
-          <div className="glass" style={{
-            backgroundColor: 'rgba(30, 30, 30, 0.95)',
-            borderRadius: '16px',
-            padding: '24px',
-            maxWidth: '550px',
-            width: '100%',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            color: '#fff'
-          }}>
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '550px', width: '100%', padding: '24px' }}>
             <h3 style={{ marginTop: 0, marginBottom: '8px', fontSize: '18px', fontWeight: '600' }}>
               Seleziona il Volto
             </h3>
-            <p style={{ fontSize: '13px', color: '#aaa', marginTop: 0, marginBottom: '16px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: 0, marginBottom: '16px' }}>
               Trascina il cursore sopra il viso della persona per ritagliarlo precisamente.
             </p>
 
