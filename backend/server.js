@@ -5,8 +5,54 @@ import fs from "fs";
 import { exiftool } from "exiftool-vendored";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import https from "https";
 
 dotenv.config();
+
+// Helper function to perform HTTPS POST request using native Node https module
+function httpsPost(url, body) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const options = {
+      hostname: urlObj.hostname,
+      port: 443,
+      path: urlObj.pathname + urlObj.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          text: () => Promise.resolve(data),
+          json: () => {
+            try {
+              return Promise.resolve(JSON.parse(data));
+            } catch (e) {
+              return Promise.reject(new Error("Invalid JSON: " + data));
+            }
+          }
+        });
+      });
+    });
+
+    req.on('error', (e) => {
+      reject(e);
+    });
+
+    req.write(body);
+    req.end();
+  });
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -210,12 +256,8 @@ JSON structure example:
   "suggestedKeywords": ["..."]
 }`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
+      JSON.stringify({
         contents: [
           {
             parts: [
@@ -230,7 +272,7 @@ JSON structure example:
           }
         ]
       })
-    });
+    );
 
     if (!response.ok) {
       const errText = await response.text();

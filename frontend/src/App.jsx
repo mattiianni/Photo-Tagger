@@ -156,10 +156,15 @@ export default function App() {
 
   // Downsample image in browser before sending to Gemini to save bandwidth and speed up analysis
   const downsampleImage = async (imagePath, maxDim = 1024) => {
+    const url = `${API_BASE}/api/image?path=${encodeURIComponent(imagePath)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch image");
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.src = `${API_BASE}/api/image?path=${encodeURIComponent(imagePath)}`;
+      img.src = objectUrl;
       img.onload = () => {
         let width = img.width;
         let height = img.height;
@@ -177,9 +182,13 @@ export default function App() {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
+        URL.revokeObjectURL(objectUrl);
         resolve(canvas.toDataURL('image/jpeg', 0.85));
       };
-      img.onerror = (e) => reject(e);
+      img.onerror = (e) => {
+        URL.revokeObjectURL(objectUrl);
+        reject(e);
+      };
     });
   };
 
