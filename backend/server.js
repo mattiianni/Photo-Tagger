@@ -92,7 +92,8 @@ app.post("/api/scan", async (req, res) => {
           name: file,
           path: fullPath,
           size: stats.size,
-          metadata: existingMetadata
+          metadata: existingMetadata,
+          analyzed: !!(existingMetadata.title || existingMetadata.description || (existingMetadata.keywords && existingMetadata.keywords.length > 0))
         });
       }
     }

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import * as faceapi from '@vladmandic/face-api';
 import FaceTrainer from './components/FaceTrainer';
 import LocationDbSettings from './components/LocationDbSettings';
-import { detectAndMatchFaces } from './utils/faceRecognition';
+import { detectAndMatchFaces, loadFaceApiModels } from './utils/faceRecognition';
 
 const API_BASE = window.location.port === '5173'
   ? `http://${window.location.hostname}:3001`
@@ -23,6 +24,16 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [currentProcessingName, setCurrentProcessingName] = useState('');
   const [analyzingSingle, setAnalyzingSingle] = useState(false);
+
+  // Manual Crop States
+  const [showManualCropModal, setShowManualCropModal] = useState(false);
+  const [manualCropImage, setManualCropImage] = useState(null);
+  const [selectedPersonForCrop, setSelectedPersonForCrop] = useState('');
+  const [isManualDragging, setIsManualDragging] = useState(false);
+  const [manualDragStart, setManualDragStart] = useState(null);
+  const [manualDragEnd, setManualDragEnd] = useState(null);
+  const [customPersonName, setCustomPersonName] = useState('');
+  const manualCanvasRef = useRef(null);
 
   // Save API key to localStorage
   useEffect(() => {
@@ -183,6 +194,27 @@ export default function App() {
   const runBatchTagging = async () => {
     if (images.length === 0) return alert("Nessuna foto da analizzare.");
     
+    const analyzedCount = images.filter(img => img.analyzed).length;
+    let skipAlreadyAnalyzed = false;
+
+    if (analyzedCount > 0) {
+      const choice = prompt(
+        `Trovate ${analyzedCount} foto già elaborate.\n\n` +
+        `Scegli un'opzione:\n` +
+        `1 - Elabora SOLO le foto rimaste in attesa (consigliato)\n` +
+        `2 - Rielabora TUTTE le foto (sovrascrivi tutto)\n\n` +
+        `Lascia vuoto o premi Annulla per fermare il batch.`
+      );
+      
+      if (choice === '1') {
+        skipAlreadyAnalyzed = true;
+      } else if (choice === '2') {
+        skipAlreadyAnalyzed = false;
+      } else {
+        return; // Aborted
+      }
+    }
+    
     setProcessing(true);
     setProgress(0);
     
@@ -190,6 +222,10 @@ export default function App() {
     
     for (let i = 0; i < updatedImages.length; i++) {
       const img = updatedImages[i];
+      if (skipAlreadyAnalyzed && img.analyzed) {
+        setProgress(Math.round(((i + 1) / updatedImages.length) * 100));
+        continue;
+      }
       setCurrentProcessingName(img.name);
       
       const newMeta = await analyzeImage(img);
@@ -298,6 +334,262 @@ export default function App() {
     setSelectedImage(updatedImg);
     setImages(images.map(img => img.path === selectedImage.path ? updatedImg : img));
   };
+
+  const rebuildMatcherFromLocalStorage = () => {
+    try {
+      const saved = localStorage.getItem('trained_people');
+      if (!saved) return;
+      const peopleList = JSON.parse(saved);
+      const activePeople = peopleList.filter(p => p.descriptors && p.descriptors.length > 0);
+      if (activePeople.length === 0) {
+        setFaceMatcher(null);
+        return;
+      }
+      const labeledDescriptors = activePeople.map(p => {
+        const floatDescriptors = p.descriptors.map(d => new Float32Array(d));
+        return new faceapi.LabeledFaceDescriptors(p.name, floatDescriptors);
+      });
+      const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
+      setFaceMatcher(matcher);
+    } catch (err) {
+      console.error('Error rebuilding matcher in App:', err);
+    }
+  };
+
+  const handleManualAddFace = () => {
+    if (!selectedImage) return;
+    const imageSrc = `${API_BASE}/api/image?path=${encodeURIComponent(selectedImage.path)}`;
+    
+    // Get first person in the trained list to set as default select option
+    const saved = localStorage.getItem('trained_people');
+    const trainedPeopleList = saved ? JSON.parse(saved) : [
+      { name: 'Mattia', photos: [], descriptors: [] },
+      { name: 'Tiziana', photos: [], descriptors: [] },
+      { name: 'Samuele', photos: [], descriptors: [] }
+    ];
+    
+    setManualCropImage(imageSrc);
+    setSelectedPersonForCrop(trainedPeopleList[0]?.name || 'Mattia');
+    setCustomPersonName('');
+    setManualDragStart(null);
+    setManualDragEnd(null);
+    setShowManualCropModal(true);
+  };
+
+  const handleManualMouseDown = (e) => {
+    const canvas = manualCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setManualDragStart({ x, y });
+    setManualDragEnd({ x, y });
+    setIsManualDragging(true);
+  };
+
+  const handleManualMouseMove = (e) => {
+    if (!isManualDragging) return;
+    const canvas = manualCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, canvas.width));
+    const y = Math.max(0, Math.min(e.clientY - rect.top, canvas.height));
+    setManualDragEnd({ x, y });
+  };
+
+  const handleManualMouseUp = () => {
+    setIsManualDragging(false);
+  };
+
+  const handleSaveManualCrop = async () => {
+    const canvas = manualCanvasRef.current;
+    if (!canvas || !manualDragStart || !manualDragEnd) {
+      alert("Seleziona l'area del volto trascinando il mouse.");
+      return;
+    }
+
+    const name = selectedPersonForCrop === 'new' ? customPersonName.trim() : selectedPersonForCrop;
+    if (!name) {
+      alert("Inserisci o seleziona un nome valido per la persona.");
+      return;
+    }
+
+    const x = Math.min(manualDragStart.x, manualDragEnd.x);
+    const y = Math.min(manualDragStart.y, manualDragEnd.y);
+    const w = Math.abs(manualDragStart.x - manualDragEnd.x);
+    const h = Math.abs(manualDragStart.y - manualDragEnd.y);
+
+    if (w < 15 || h < 15) {
+      alert("Seleziona un'area del volto più grande.");
+      return;
+    }
+
+    setAnalyzingSingle(true);
+
+    try {
+      const tempCanvas = document.createElement('canvas');
+      const img = new Image();
+      img.src = manualCropImage;
+      await new Promise((resolve) => (img.onload = resolve));
+
+      const scaleX = img.width / canvas.width;
+      const scaleY = img.height / canvas.height;
+
+      // Add 25% padding like before
+      const paddingX = w * 0.25;
+      const paddingY = h * 0.25;
+      const px = Math.max(0, x - paddingX);
+      const py = Math.max(0, y - paddingY);
+      const pw = Math.min(canvas.width - px, w + paddingX * 2);
+      const ph = Math.min(canvas.height - py, h + paddingY * 2);
+
+      const cropW = pw * scaleX;
+      const cropH = ph * scaleY;
+
+      tempCanvas.width = cropW;
+      tempCanvas.height = cropH;
+      const tempCtx = tempCanvas.getContext('2d');
+
+      tempCtx.drawImage(
+        img,
+        px * scaleX,
+        py * scaleY,
+        cropW,
+        cropH,
+        0,
+        0,
+        cropW,
+        cropH
+      );
+
+      const croppedBase64 = tempCanvas.toDataURL('image/jpeg', 0.9);
+
+      // Run face detection on the cropped image
+      const cropImgElement = new Image();
+      cropImgElement.src = croppedBase64;
+      await new Promise((resolve) => (cropImgElement.onload = resolve));
+
+      await loadFaceApiModels();
+      const detection = await faceapi.detectSingleFace(cropImgElement, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (detection) {
+        // 1. Save to trained_people in localStorage
+        const saved = localStorage.getItem('trained_people');
+        let trainedPeopleList = saved ? JSON.parse(saved) : [
+          { name: 'Mattia', photos: [], descriptors: [] },
+          { name: 'Tiziana', photos: [], descriptors: [] },
+          { name: 'Samuele', photos: [], descriptors: [] }
+        ];
+
+        let targetPerson = trainedPeopleList.find(p => p.name.toLowerCase() === name.toLowerCase());
+        if (!targetPerson) {
+          targetPerson = { name, photos: [], descriptors: [] };
+          trainedPeopleList.push(targetPerson);
+        }
+        targetPerson.photos.push(croppedBase64);
+        targetPerson.descriptors.push(Array.from(detection.descriptor));
+        localStorage.setItem('trained_people', JSON.stringify(trainedPeopleList));
+
+        // 2. Rebuild the Face Matcher in memory
+        rebuildMatcherFromLocalStorage();
+
+        // 3. Update the metadata in the React state for this image
+        const updatedMeta = { ...(selectedImage.metadata || {}) };
+        
+        // Add to detected faces list if not already there
+        const facesList = [...(updatedMeta.faces || [])];
+        if (!facesList.some(f => f.name.toLowerCase() === name.toLowerCase())) {
+          facesList.push({ name, confidence: 100 });
+        }
+        updatedMeta.faces = facesList;
+
+        // Add to keywords if not already there
+        const keywordsList = [...(updatedMeta.keywords || [])];
+        if (!keywordsList.includes(name)) {
+          keywordsList.push(name);
+        }
+        updatedMeta.keywords = keywordsList;
+
+        const updatedImage = {
+          ...selectedImage,
+          metadata: updatedMeta,
+          analyzed: true
+        };
+
+        setSelectedImage(updatedImage);
+        setImages(images.map(img => img.path === selectedImage.path ? updatedImage : img));
+        setShowManualCropModal(false);
+        alert(`Volto di ${name} registrato ed aggiunto con successo!`);
+      } else {
+        alert("Nessun volto rilevato in questa area. Centra meglio il viso includendo occhi e naso.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Errore durante il rilevamento e la registrazione.");
+    } finally {
+      setAnalyzingSingle(false);
+    }
+  };
+
+  // Canvas drawing for manual face cropper
+  useEffect(() => {
+    if (!showManualCropModal || !manualCropImage) return;
+    const canvas = manualCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.src = manualCropImage;
+    img.onload = () => {
+      const maxWidth = Math.min(window.innerWidth - 60, 500);
+      const maxHeight = 400;
+      let width = img.width;
+      let height = img.height;
+      if (width > maxWidth) {
+        height = (maxWidth / width) * height;
+        width = maxWidth;
+      }
+      if (height > maxHeight) {
+        width = (maxHeight / height) * width;
+        height = maxHeight;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      if (manualDragStart && manualDragEnd) {
+        const x1 = Math.min(manualDragStart.x, manualDragEnd.x);
+        const y1 = Math.min(manualDragStart.y, manualDragEnd.y);
+        const w = Math.abs(manualDragStart.x - manualDragEnd.x);
+        const h = Math.abs(manualDragStart.y - manualDragEnd.y);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(0, 0, width, y1);
+        ctx.fillRect(0, y1 + h, width, height - (y1 + h));
+        ctx.fillRect(0, y1, x1, h);
+        ctx.fillRect(x1 + w, y1, width - (x1 + w), h);
+
+        ctx.strokeStyle = '#007aff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x1, y1, w, h);
+
+        ctx.fillStyle = '#ffffff';
+        const markSize = 6;
+        ctx.fillRect(x1 - 3, y1 - 3, markSize, markSize);
+        ctx.fillRect(x1 + w - 3, y1 - 3, markSize, markSize);
+        ctx.fillRect(x1 - 3, y1 + h - 3, markSize, markSize);
+        ctx.fillRect(x1 + w - 3, y1 + h - 3, markSize, markSize);
+      } else {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+        ctx.textAlign = 'center';
+        ctx.fillText('Trascina sul volto da registrare', width / 2, height / 2);
+      }
+    };
+  }, [manualCropImage, manualDragStart, manualDragEnd, isManualDragging, showManualCropModal]);
 
   return (
     <div className="app-container">
@@ -511,19 +803,31 @@ export default function App() {
             </div>
           )}
 
-          {selectedImage.metadata?.faces && selectedImage.metadata.faces.length > 0 && (
-            <div className="inspector-section">
-              <div className="inspector-title">Persone Rilevate</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {selectedImage.metadata.faces.map((face, index) => (
-                  <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', background: 'var(--input-bg)', padding: '6px 10px', borderRadius: '6px' }}>
-                    <span style={{ fontWeight: '500' }}>👤 {face.name}</span>
-                    <span style={{ color: 'var(--text-secondary)' }}>confidenza: {face.confidence}%</span>
-                  </div>
-                ))}
-              </div>
+          <div className="inspector-section">
+            <div className="inspector-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Persone Rilevate</span>
+              <button 
+                className="btn btn-secondary" 
+                style={{ padding: '2px 8px', fontSize: '11px', margin: 0 }}
+                onClick={handleManualAddFace}
+              >
+                + Aggiungi
+              </button>
             </div>
-          )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {(selectedImage.metadata?.faces || []).map((face, index) => (
+                <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', background: 'var(--input-bg)', padding: '6px 10px', borderRadius: '6px' }}>
+                  <span style={{ fontWeight: '500' }}>👤 {face.name}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {face.confidence ? `confidenza: ${face.confidence}%` : 'aggiunto manualmente'}
+                  </span>
+                </div>
+              ))}
+              {(!selectedImage.metadata?.faces || selectedImage.metadata.faces.length === 0) && (
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>Nessuna persona rilevata</span>
+              )}
+            </div>
+          </div>
 
           <div className="inspector-section">
             <div className="inspector-title">Tag & Parole Chiave (IPTC)</div>
@@ -553,6 +857,10 @@ export default function App() {
             style={{ width: '100%', marginTop: '10px' }}
             disabled={analyzingSingle}
             onClick={() => {
+              if (selectedImage.analyzed) {
+                const overwrite = confirm("Questa foto è già stata elaborata. Vuoi sovrascriverla?");
+                if (!overwrite) return;
+              }
               setAnalyzingSingle(true);
               analyzeImage(selectedImage).then(meta => {
                 setAnalyzingSingle(false);
@@ -573,6 +881,112 @@ export default function App() {
             {analyzingSingle ? '⏳ Analisi in corso...' : '🔄 Rielabora Singola Foto'}
           </button>
         </aside>
+      )}
+
+      {/* Manual Cropper Modal */}
+      {showManualCropModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.85)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div className="glass" style={{
+            backgroundColor: 'rgba(30, 30, 30, 0.95)',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '550px',
+            width: '100%',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: '#fff'
+          }}>
+            <h3 style={{ marginTop: 0, marginBottom: '8px', fontSize: '18px', fontWeight: '600' }}>
+              Aggiungi Volto Manualmente
+            </h3>
+            <p style={{ fontSize: '13px', color: '#aaa', marginTop: 0, marginBottom: '16px' }}>
+              Seleziona la persona e trascina il cursore sopra il suo volto per ritagliarlo ed addestrare l'app.
+            </p>
+
+            <div style={{ marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '600', color: '#ccc' }}>Assegna a:</label>
+              <select 
+                className="form-input" 
+                style={{ backgroundColor: '#222', color: '#fff', border: '1px solid #444' }}
+                value={selectedPersonForCrop}
+                onChange={(e) => setSelectedPersonForCrop(e.target.value)}
+              >
+                {(() => {
+                  const saved = localStorage.getItem('trained_people');
+                  const list = saved ? JSON.parse(saved) : [
+                    { name: 'Mattia' }, { name: 'Tiziana' }, { name: 'Samuele' }
+                  ];
+                  return list.map(p => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                  ));
+                })()}
+                <option value="new">+ Nuova Persona...</option>
+              </select>
+
+              {selectedPersonForCrop === 'new' && (
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Inserisci il nome..."
+                  style={{ backgroundColor: '#222', color: '#fff', border: '1px solid #444', marginTop: '8px' }}
+                  value={customPersonName}
+                  onChange={(e) => setCustomPersonName(e.target.value)}
+                />
+              )}
+            </div>
+
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              backgroundColor: '#111', 
+              borderRadius: '8px',
+              overflow: 'hidden',
+              marginBottom: '20px',
+              position: 'relative',
+              userSelect: 'none'
+            }}>
+              <canvas
+                ref={manualCanvasRef}
+                onMouseDown={handleManualMouseDown}
+                onMouseMove={handleManualMouseMove}
+                onMouseUp={handleManualMouseUp}
+                onMouseLeave={handleManualMouseUp}
+                style={{ cursor: 'crosshair', display: 'block' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowManualCropModal(false)}
+                disabled={analyzingSingle}
+                style={{ color: '#fff' }}
+              >
+                Annulla
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleSaveManualCrop}
+                disabled={analyzingSingle}
+              >
+                {analyzingSingle ? '⏳ Elaborazione...' : 'Salva e Addestra'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
