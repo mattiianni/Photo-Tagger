@@ -49,6 +49,58 @@ export default function App() {
     }
   }, [dirPath]);
 
+  // Clean up and downsample any existing legacy high-res face photos from localStorage to prevent QuotaExceededError
+  useEffect(() => {
+    const migrateTrainedPeople = async () => {
+      const saved = localStorage.getItem('trained_people');
+      if (!saved) return;
+      try {
+        const peopleList = JSON.parse(saved);
+        let modified = false;
+        
+        for (const person of peopleList) {
+          if (!person.photos) person.photos = [];
+          for (let i = 0; i < person.photos.length; i++) {
+            const photo = person.photos[i];
+            // If the photo string is large (e.g. over 20KB), resize it to 80x80 to free space!
+            if (photo && photo.length > 20000) {
+              try {
+                const resized = await new Promise((resolve) => {
+                  const img = new Image();
+                  img.src = photo;
+                  img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 80;
+                    canvas.height = 80;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, 80, 80);
+                    resolve(canvas.toDataURL('image/jpeg', 0.8));
+                  };
+                  img.onerror = () => resolve(photo); // fallback to original if load fails
+                });
+                if (resized !== photo) {
+                  person.photos[i] = resized;
+                  modified = true;
+                }
+              } catch (e) {
+                console.error("Migration resize error:", e);
+              }
+            }
+          }
+        }
+        
+        if (modified) {
+          localStorage.setItem('trained_people', JSON.stringify(peopleList));
+          console.log("Successfully migrated and compressed trained_people photos!");
+        }
+      } catch (err) {
+        console.error("Error during trained_people migration:", err);
+      }
+    };
+    
+    migrateTrainedPeople();
+  }, []);
+
   // Scan folder
   const handleScanFolder = async (pathOverride) => {
     const targetPath = (typeof pathOverride === 'string') ? pathOverride : dirPath;
@@ -102,6 +154,35 @@ export default function App() {
     }
   };
 
+  // Downsample image in browser before sending to Gemini to save bandwidth and speed up analysis
+  const downsampleImage = async (imagePath, maxDim = 1024) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = `${API_BASE}/api/image?path=${encodeURIComponent(imagePath)}`;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = (e) => reject(e);
+    });
+  };
+
   // Run AI analysis on a single image
   const analyzeImage = async (img) => {
 
@@ -115,6 +196,14 @@ export default function App() {
         console.error("Face-api.js error:", faceErr);
       }
 
+      // Downsample the image to send to backend to speed up upload and analysis
+      let base64Image = null;
+      try {
+        base64Image = await downsampleImage(img.path);
+      } catch (downsampleErr) {
+        console.error("Downsample error:", downsampleErr);
+      }
+
       // 2. Query Gemini Vision API (via local backend proxy)
       const response = await fetch(`${API_BASE}/api/analyze-gemini`, {
         method: 'POST',
@@ -123,7 +212,8 @@ export default function App() {
           'Authorization': `Bearer ${apiKey}` 
         },
         body: JSON.stringify({
-          filePath: img.path,
+          filePath: base64Image ? undefined : img.path,
+          base64Image: base64Image ? base64Image.split(',')[1] : undefined,
           landmarksDb
         })
       });

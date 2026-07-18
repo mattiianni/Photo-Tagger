@@ -158,9 +158,15 @@ app.post("/api/write-metadata", async (req, res) => {
 
 // Endpoint to run Gemini Vision analysis
 app.post("/api/analyze-gemini", async (req, res) => {
-  const { filePath, customPrompt, landmarksDb } = req.body;
-  if (!filePath || !fs.existsSync(filePath)) {
-    return res.status(400).json({ error: "Valid file path is required" });
+  const { filePath, base64Image, customPrompt, landmarksDb } = req.body;
+  
+  let base64Data = "";
+  if (base64Image) {
+    base64Data = base64Image;
+  } else {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(400).json({ error: "Valid file path or base64 image data is required" });
+    }
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -169,8 +175,10 @@ app.post("/api/analyze-gemini", async (req, res) => {
   }
 
   try {
-    const fileBuffer = fs.readFileSync(filePath);
-    const base64Image = fileBuffer.toString("base64");
+    if (!base64Image) {
+      const fileBuffer = fs.readFileSync(filePath);
+      base64Data = fileBuffer.toString("base64");
+    }
 
     const prompt = `Analyze this photo. Return a JSON object with the following fields:
 - "title": A short, descriptive title (e.g. "Mattia e Samuele davanti al Partenone").
@@ -214,7 +222,7 @@ JSON structure example:
               {
                 inlineData: {
                   mimeType: "image/jpeg",
-                  data: base64Image
+                  data: base64Data
                 }
               }
             ]
