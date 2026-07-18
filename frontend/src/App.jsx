@@ -252,6 +252,7 @@ export default function App() {
   const [isDragActive, setIsDragActive] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [people, setPeople] = useState([]);
+  const [showAnalyzePrompt, setShowAnalyzePrompt] = useState(false);
 
   // Save last directory path
   useEffect(() => {
@@ -695,8 +696,8 @@ export default function App() {
     }
   };
 
-  // Run batch analysis (with support for onlySelected)
-  const runBatchTagging = async (onlySelected = false) => {
+  // Run batch analysis (with support for onlySelected and forceAll)
+  const runBatchTagging = async (onlySelected = false, forceAll = false) => {
     const targetImages = onlySelected 
       ? images.filter(img => selectedImagePaths.has(img.path))
       : [...images];
@@ -717,9 +718,9 @@ export default function App() {
       if (mainIdx === -1) continue;
 
       const img = updatedImages[mainIdx];
-      // Skip if we are running the global process and this image was already analyzed.
+      // Skip if we are running the global process and this image was already analyzed (unless forceAll is true).
       // If the user selected specific images, we analyze them regardless of status.
-      if (!onlySelected && img.analyzed) {
+      if (!onlySelected && !forceAll && img.analyzed) {
         setProgress(Math.round(((i + 1) / targetImages.length) * 100));
         continue;
       }
@@ -1603,7 +1604,14 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <button className="btn btn-secondary" onClick={() => runBatchTagging(false)} disabled={processing}>
+                  <button className="btn btn-secondary" onClick={() => {
+                    const hasAnalyzed = images.some(img => img.analyzed);
+                    if (hasAnalyzed) {
+                      setShowAnalyzePrompt(true);
+                    } else {
+                      runBatchTagging(false, false);
+                    }
+                  }} disabled={processing}>
                     ⚙️ Analizza Tutto (Batch)
                   </button>
                   {selectedImage && (
@@ -2065,6 +2073,59 @@ export default function App() {
                 disabled={analyzingSingle}
               >
                 {analyzingSingle ? '⏳ Elaborazione...' : 'Salva e Addestra'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Analyze Prompt Modal */}
+      {showAnalyzePrompt && (
+        <div className="modal-overlay" style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.85)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          zIndex: 9999, backdropFilter: 'blur(5px)'
+        }}>
+          <div className="modal-content" style={{
+            backgroundColor: '#1E1E1E', padding: '30px', borderRadius: '12px',
+            width: '90%', maxWidth: '450px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            border: '1px solid var(--border-color)',
+            textAlign: 'center'
+          }}>
+            <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '1.4rem' }}>Modalità di Analisi</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '30px', fontSize: '1rem', lineHeight: '1.5' }}>
+              Hai già analizzato alcune foto in questa cartella. Vuoi analizzare TUTTE le foto (sovrascrivendo quelle già fatte) o SOLO QUELLE NON ELABORATE?
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <button 
+                className="btn btn-primary" 
+                onClick={() => {
+                  setShowAnalyzePrompt(false);
+                  runBatchTagging(false, false);
+                }}
+                style={{ width: '100%' }}
+              >
+                SOLO NON ELABORATE
+              </button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => {
+                  setShowAnalyzePrompt(false);
+                  runBatchTagging(false, true);
+                }}
+                style={{ width: '100%', borderColor: 'var(--border-color)' }}
+              >
+                TUTTE
+              </button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowAnalyzePrompt(false)}
+                style={{ width: '100%', marginTop: '10px', background: 'transparent', border: 'none', color: 'var(--text-secondary)' }}
+              >
+                Annulla
               </button>
             </div>
           </div>
