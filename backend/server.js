@@ -67,7 +67,7 @@ app.post("/api/scan", async (req, res) => {
     for (const file of files) {
       const ext = path.extname(file).toLowerCase();
       if ([".jpg", ".jpeg"].includes(ext)) {
-        const fullPath = path.join(dirPath, file);
+        const fullPath = path.join(targetPath, file);
         const stats = fs.statSync(fullPath);
         
         // Read existing metadata to display
