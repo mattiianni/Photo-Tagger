@@ -218,6 +218,11 @@ export default function App() {
         })
       });
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Server returned status ${response.status}`);
+      }
+
       const data = await response.json();
       if (!data.success) throw new Error(data.error);
 
