@@ -751,8 +751,72 @@ export default function App() {
   };
 
   // Write single image metadata to file
-  const saveImageMetadata = async (img) => {
+  // Write single image metadata to file and optionally train face matcher
+  const saveImageMetadata = async (img, currentPeopleList = null) => {
+    let updatedPeople = currentPeopleList ? [...currentPeopleList] : null;
+    let hasNewTraining = false;
+
     try {
+      // Train faces if provided
+      if (updatedPeople && img.metadata && img.metadata.faces && img.metadata.faces.length > 0) {
+        for (const face of img.metadata.faces) {
+          const name = face.name;
+          if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown' && face.descriptor) {
+            
+            let targetPerson = updatedPeople.find(p => p.name.toLowerCase() === name.toLowerCase());
+            
+            // Check if descriptor already exists
+            const descStr = JSON.stringify(face.descriptor);
+            let alreadyHasDesc = false;
+            if (targetPerson && targetPerson.descriptors) {
+              alreadyHasDesc = targetPerson.descriptors.some(d => JSON.stringify(d) === descStr);
+            }
+
+            if (!alreadyHasDesc) {
+              // Extract face thumbnail
+              const imgObj = new Image();
+              imgObj.crossOrigin = "anonymous";
+              imgObj.src = `${API_BASE}/api/image?path=${encodeURIComponent(img.path)}&size=preview`;
+              await new Promise((resolve) => {
+                imgObj.onload = resolve;
+                imgObj.onerror = resolve; // Ignore errors
+              });
+
+              if (imgObj.width > 0) {
+                const box = face.box || { x: 0, y: 0, width: imgObj.width, height: imgObj.height };
+                const padX = box.width * 0.25;
+                const padY = box.height * 0.25;
+                const cx = Math.max(0, box.x - padX);
+                const cy = Math.max(0, box.y - padY);
+                const cw = Math.min(imgObj.width - cx, box.width + padX * 2);
+                const ch = Math.min(imgObj.height - cy, box.height + padY * 2);
+
+                const canvas = document.createElement('canvas');
+                canvas.width = cw;
+                canvas.height = ch;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(imgObj, cx, cy, cw, ch, 0, 0, cw, ch);
+
+                const thumbCanvas = document.createElement('canvas');
+                thumbCanvas.width = 80;
+                thumbCanvas.height = 80;
+                const thumbCtx = thumbCanvas.getContext('2d');
+                thumbCtx.drawImage(canvas, 0, 0, 80, 80);
+                const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.8);
+
+                if (!targetPerson) {
+                  targetPerson = { name, photos: [], descriptors: [] };
+                  updatedPeople.push(targetPerson);
+                }
+                targetPerson.photos.push(thumbBase64);
+                targetPerson.descriptors.push(face.descriptor);
+                hasNewTraining = true;
+              }
+            }
+          }
+        }
+      }
+
       const response = await fetch(`${API_BASE}/api/write-metadata`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -767,14 +831,14 @@ export default function App() {
       });
       const data = await response.json();
       if (data.success) {
-        return true;
+        return { success: true, newPeopleList: updatedPeople, hasNewTraining };
       } else {
         console.error("Error writing metadata:", data.error);
-        return false;
+        return { success: false, newPeopleList: updatedPeople, hasNewTraining };
       }
     } catch (err) {
       console.error(err);
-      return false;
+      return { success: false, newPeopleList: updatedPeople, hasNewTraining };
     }
   };
 
@@ -791,13 +855,27 @@ export default function App() {
 
     setProcessing(true);
     let successCount = 0;
+    
+    let currentPeopleList = [...people];
+    let anyTrainingUpdates = false;
 
     for (let i = 0; i < toSave.length; i++) {
       const img = toSave[i];
-      setCurrentProcessingName(`Scrittura metadati: ${img.name}`);
-      const success = await saveImageMetadata(img);
-      if (success) successCount++;
+      setCurrentProcessingName(`Scrittura metadati e volti: ${img.name}`);
+      const result = await saveImageMetadata(img, currentPeopleList);
+      if (result.success) {
+        successCount++;
+      }
+      if (result.hasNewTraining) {
+        currentPeopleList = result.newPeopleList;
+        anyTrainingUpdates = true;
+      }
       setProgress(Math.round(((i + 1) / toSave.length) * 100));
+    }
+    
+    if (anyTrainingUpdates) {
+      await updatePeopleList(currentPeopleList);
+      showToast("Volti salvati nel database per il riconoscimento futuro!", "success");
     }
 
     setProcessing(false);
