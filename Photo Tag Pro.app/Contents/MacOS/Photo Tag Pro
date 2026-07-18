@@ -39,6 +39,8 @@ PORT_PID=$(lsof -t -i :3001)
 if [ ! -z "$PORT_PID" ]; then
   echo "Killing existing process on port 3001 (PID: $PORT_PID)..."
   kill -9 $PORT_PID
+  # Give the OS time to release the port
+  sleep 1
 fi
 
 # Start the node server in background via osascript to decouple it from launchd reaping
