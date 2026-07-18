@@ -41,11 +41,10 @@ if [ ! -z "$PORT_PID" ]; then
   kill -9 $PORT_PID
 fi
 
-# Start the node server in background and disown it
+# Start the node server in background via osascript to decouple it from launchd reaping
 echo "Starting backend server..."
-node backend/server.js &
-SERVER_PID=$!
-disown $SERVER_PID
+PROJECT_ROOT=$(pwd)
+osascript -e "do shell script \"cd '$PROJECT_ROOT' && node backend/server.js > /dev/null 2>&1 &\""
 
 # Wait 2 seconds for the server to spin up
 sleep 2
