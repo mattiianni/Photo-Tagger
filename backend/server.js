@@ -197,10 +197,7 @@ JSON structure example:
               }
             ]
           }
-        ],
-        generation_config: {
-          response_mime_type: "application/json"
-        }
+        ]
       })
     });
 
@@ -210,7 +207,13 @@ JSON structure example:
     }
 
     const data = await response.json();
-    const resultText = data.candidates[0].content.parts[0].text;
+    let resultText = data.candidates[0].content.parts[0].text;
+    
+    // Clean up markdown block if present
+    if (resultText.includes("```")) {
+      resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
+    }
+    
     const analysis = JSON.parse(resultText);
 
     res.json({ success: true, analysis });

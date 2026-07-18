@@ -22,6 +22,7 @@ export default function App() {
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentProcessingName, setCurrentProcessingName] = useState('');
+  const [analyzingSingle, setAnalyzingSingle] = useState(false);
 
   // Save API key to localStorage
   useEffect(() => {
@@ -550,17 +551,26 @@ export default function App() {
           <button 
             className="btn btn-primary" 
             style={{ width: '100%', marginTop: '10px' }}
+            disabled={analyzingSingle}
             onClick={() => {
+              setAnalyzingSingle(true);
               analyzeImage(selectedImage).then(meta => {
+                setAnalyzingSingle(false);
                 if (meta) {
                   const updated = { ...selectedImage, metadata: meta, analyzed: true };
                   setSelectedImage(updated);
                   setImages(images.map(img => img.path === selectedImage.path ? updated : img));
+                } else {
+                  alert("Impossibile analizzare la foto. Controlla la console del browser o del server per i dettagli.");
                 }
+              }).catch((err) => {
+                setAnalyzingSingle(false);
+                console.error(err);
+                alert("Errore di rete o del server durante l'analisi.");
               });
             }}
           >
-            🔄 Rielabora Singola Foto
+            {analyzingSingle ? '⏳ Analisi in corso...' : '🔄 Rielabora Singola Foto'}
           </button>
         </aside>
       )}
