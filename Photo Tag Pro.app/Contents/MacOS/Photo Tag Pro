@@ -1,0 +1,33 @@
+#!/bin/bash
+# Move to the project root directory relative to the app bundle location
+cd "$(dirname "$0")/../../.."
+
+# Set PATH to include standard Node and npm paths on macOS (since GUI launched apps don't inherit shell PATH!)
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+# First check if backend dependencies are installed, if not install them
+if [ ! -d "backend/node_modules" ]; then
+  npm install --prefix backend
+fi
+
+# Build the frontend if dist does not exist
+if [ ! -d "frontend/dist" ]; then
+  npm install --prefix frontend
+  npm run build --prefix frontend
+fi
+
+# Kill any existing server running on 3001
+npx kill-port 3001
+
+# Start the node server
+node backend/server.js &
+SERVER_PID=$!
+
+# Wait 2 seconds for the server to spin up
+sleep 2
+
+# Open default browser
+open http://localhost:3001
+
+# Wait for node server
+wait $SERVER_PID
