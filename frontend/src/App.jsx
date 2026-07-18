@@ -940,31 +940,37 @@ export default function App() {
       thumbCtx.drawImage(canvas, 0, 0, 80, 80);
       const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.8);
 
-      // 2. Save the face descriptor and photo to the people database
-      let trainedPeopleList = people.length > 0 ? [...people] : [
-        { name: 'Mattia', photos: [], descriptors: [] },
-        { name: 'Tiziana', photos: [], descriptors: [] },
-        { name: 'Samuele', photos: [], descriptors: [] }
-      ];
+      // 2. Save the face descriptor and photo to the people database (skip for Sconosciuto)
+      let trainedPeopleList = [...people];
+      if (name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
+        if (trainedPeopleList.length === 0) {
+          trainedPeopleList = [
+            { name: 'Mattia', photos: [], descriptors: [] },
+            { name: 'Tiziana', photos: [], descriptors: [] },
+            { name: 'Samuele', photos: [], descriptors: [] }
+          ];
+        }
 
-      let targetPerson = trainedPeopleList.find(p => p.name.toLowerCase() === name.toLowerCase());
-      if (!targetPerson) {
-        targetPerson = { name, photos: [], descriptors: [] };
-        trainedPeopleList.push(targetPerson);
+        let targetPerson = trainedPeopleList.find(p => p.name.toLowerCase() === name.toLowerCase());
+        if (!targetPerson) {
+          targetPerson = { name, photos: [], descriptors: [] };
+          trainedPeopleList.push(targetPerson);
+        }
+
+        if (face.descriptor) {
+          targetPerson.photos.push(thumbBase64);
+          targetPerson.descriptors.push(face.descriptor);
+        }
+
+        await updatePeopleList(trainedPeopleList);
       }
-
-      // If we have the descriptor, save it to the face matcher database!
-      if (face.descriptor) {
-        targetPerson.photos.push(thumbBase64);
-        targetPerson.descriptors.push(face.descriptor);
-      }
-
-      await updatePeopleList(trainedPeopleList);
 
       // 3. Update the metadata in the React state for this image
       const updatedMeta = { ...selectedImage.metadata };
       const facesList = [...(updatedMeta.faces || [])];
       
+      const oldName = face.name;
+
       // Update this face's name and set confidence to 100%
       facesList[faceIndex] = {
         ...face,
@@ -974,12 +980,21 @@ export default function App() {
       updatedMeta.faces = facesList;
 
       // Add to keywords if not already there, removing Sconosciuto
-      const keywordsList = [...(updatedMeta.keywords || [])];
-      const filteredKeywords = keywordsList.filter(k => 
+      let keywordsList = [...(updatedMeta.keywords || [])];
+      let filteredKeywords = keywordsList.filter(k => 
         k.toLowerCase() !== 'sconosciuto' && 
         k.toLowerCase() !== 'unknown'
       );
-      if (!filteredKeywords.includes(name)) {
+
+      // Clean up old name from keywords if not present on other faces
+      if (oldName && oldName.toLowerCase() !== 'sconosciuto' && oldName.toLowerCase() !== 'unknown' && oldName.toLowerCase() !== name.toLowerCase()) {
+        const oldNameStillExists = facesList.some((f, idx) => idx !== faceIndex && f.name && f.name.trim().toLowerCase() === oldName.trim().toLowerCase());
+        if (!oldNameStillExists) {
+          filteredKeywords = filteredKeywords.filter(k => k && k.trim().toLowerCase() !== oldName.trim().toLowerCase());
+        }
+      }
+
+      if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown' && !filteredKeywords.some(k => k && k.toLowerCase() === name.toLowerCase())) {
         filteredKeywords.push(name);
       }
       updatedMeta.keywords = filteredKeywords;
@@ -988,6 +1003,15 @@ export default function App() {
       const allRegisteredNames = trainedPeopleList.map(p => p.name);
       let title = updatedMeta.title || "";
       let description = updatedMeta.description || "";
+
+      // Clean up old name from title/description if not present on other faces
+      if (oldName && oldName.toLowerCase() !== 'sconosciuto' && oldName.toLowerCase() !== 'unknown' && oldName.toLowerCase() !== name.toLowerCase()) {
+        const oldNameStillExists = facesList.some((f, idx) => idx !== faceIndex && f.name && f.name.trim().toLowerCase() === oldName.trim().toLowerCase());
+        if (!oldNameStillExists) {
+          title = cleanNameFromText(title, oldName);
+          description = cleanNameFromText(description, oldName);
+        }
+      }
 
       // Find which registered names are actually present in the title
       const namesInTitle = allRegisteredNames.filter(n => {
@@ -1754,28 +1778,22 @@ export default function App() {
                 >
                   <span style={{ fontWeight: '500' }}>👤 {face.name}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {(face.name === 'Sconosciuto' || face.name === 'unknown') ? (
-                      <select
-                        className="form-select"
-                        style={{ padding: '2px 4px', fontSize: '11px', borderRadius: '4px', maxWidth: '120px', cursor: 'pointer', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
-                        value=""
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            handleIdentifyFace(index, e.target.value);
-                          }
-                        }}
-                      >
-                        <option value="" disabled>Identifica...</option>
-                        {people.map(p => (
-                          <option key={p.name} value={p.name}>{p.name}</option>
-                        ))}
-                        <option value="new">+ Nuova persona...</option>
-                      </select>
-                    ) : (
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {face.confidence ? `confidenza: ${face.confidence}%` : 'aggiunto manual.'}
-                      </span>
-                    )}
+                    <select
+                      className="form-select"
+                      style={{ padding: '2px 4px', fontSize: '11px', borderRadius: '4px', maxWidth: '120px', cursor: 'pointer', background: 'var(--bg-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)' }}
+                      value={(face.name === 'unknown' || face.name === 'Sconosciuto') ? 'Sconosciuto' : face.name}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleIdentifyFace(index, e.target.value);
+                        }
+                      }}
+                    >
+                      <option value="Sconosciuto">Sconosciuto</option>
+                      {people.map(p => (
+                        <option key={p.name} value={p.name}>{p.name}</option>
+                      ))}
+                      <option value="new">+ Nuova persona...</option>
+                    </select>
                     <button
                       title="Rimuovi persona rilevata"
                       onClick={() => handleRemoveFace(index)}
