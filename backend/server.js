@@ -117,14 +117,15 @@ app.get("/api/image", async (req, res) => {
   }
 
   const ext = path.extname(filePath).toLowerCase();
-  if (![".jpg", ".jpeg", ".png"].includes(ext)) {
-    return res.status(400).send("Only JPG/JPEG/PNG images are supported");
+  if (![".jpg", ".jpeg", ".png", ".heic", ".heif"].includes(ext)) {
+    return res.status(400).send("Only JPG/JPEG/PNG/HEIC images are supported");
   }
 
-  // If a specific size cache is requested
-  if (size === "thumbnail" || size === "preview") {
-    const maxDim = size === "thumbnail" ? 300 : 1200;
-    const cachePath = getCachePath(filePath, size);
+  // If a specific size cache is requested, OR if it's a HEIC file (since browsers can't render raw HEIC, we must convert it via sips)
+  if (size === "thumbnail" || size === "preview" || ext === ".heic" || ext === ".heif") {
+    const maxDim = size === "thumbnail" ? 300 : (size === "preview" ? 1200 : 4000);
+    const cacheSizeName = size || "full";
+    const cachePath = getCachePath(filePath, cacheSizeName);
 
     if (fs.existsSync(cachePath)) {
       return res.sendFile(cachePath);
@@ -134,7 +135,7 @@ app.get("/api/image", async (req, res) => {
       await generateResizedImage(filePath, cachePath, maxDim);
       return res.sendFile(cachePath);
     } catch (err) {
-      console.error(`Error generating ${size} for ${filePath}:`, err);
+      console.error(`Error generating ${cacheSizeName} for ${filePath}:`, err);
       // Fallback to sending the original file on resize error
       return res.sendFile(filePath);
     }
@@ -166,9 +167,9 @@ async function scanDirectory(dirPath) {
       }
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
-      // Only include standard web formats (JPG, JPEG, PNG)
+      // Only include standard web formats and HEIC (JPG, JPEG, PNG, HEIC, HEIF)
       // Explicitly exclude RAW file formats (e.g. dng, cr2, cr3, nef, arw, orf, rw2, pef, raf, raw, etc.)
-      const allowedExts = [".jpg", ".jpeg", ".png"];
+      const allowedExts = [".jpg", ".jpeg", ".png", ".heic", ".heif"];
       const rawExts = [".raw", ".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".pef", ".raf", ".tiff", ".tif"];
 
       if (allowedExts.includes(ext) && !rawExts.includes(ext)) {
