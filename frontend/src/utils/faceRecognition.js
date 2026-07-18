@@ -52,8 +52,8 @@ export async function createFaceMatcher(peopleList) {
     return null;
   }
   
-  // Create a matcher with a threshold (distance metric, default 0.6. Lower is stricter)
-  return new faceapi.FaceMatcher(labeledDescriptors, 0.70);
+  // Create a matcher with a stricter threshold (0.50 instead of 0.70)
+  return new faceapi.FaceMatcher(labeledDescriptors, 0.50);
 }
 
 /**
@@ -94,20 +94,45 @@ export async function detectAndMatchFaces(imageInput, matcher) {
     }));
   }
   
-  return detections.map(d => {
+  const rawMatches = detections.map(d => {
     const bestMatch = matcher.findBestMatch(d.descriptor);
-    const resolvedName = bestMatch.label === 'unknown' ? 'Sconosciuto' : bestMatch.label;
     return {
-      name: resolvedName,
-      distance: bestMatch.distance,
-      confidence: Math.round((1 - bestMatch.distance) * 100),
-      box: {
-        x: d.detection.box.x,
-        y: d.detection.box.y,
-        width: d.detection.box.width,
-        height: d.detection.box.height
-      },
-      descriptor: Array.from(d.descriptor)
+      d,
+      label: bestMatch.label,
+      distance: bestMatch.distance
     };
   });
+
+  // Sort by best match (lowest distance first) to assign the best face to a person
+  rawMatches.sort((a, b) => a.distance - b.distance);
+
+  const assignedNames = new Set();
+  const finalResults = [];
+
+  for (const match of rawMatches) {
+    let resolvedName = 'Sconosciuto';
+    
+    if (match.label !== 'unknown') {
+      // Check if this person was already found in this photo
+      if (!assignedNames.has(match.label)) {
+        resolvedName = match.label;
+        assignedNames.add(match.label);
+      }
+    }
+
+    finalResults.push({
+      name: resolvedName,
+      distance: match.distance,
+      confidence: Math.round((1 - match.distance) * 100),
+      box: {
+        x: match.d.detection.box.x,
+        y: match.d.detection.box.y,
+        width: match.d.detection.box.width,
+        height: match.d.detection.box.height
+      },
+      descriptor: Array.from(match.d.descriptor)
+    });
+  }
+
+  return finalResults;
 }
