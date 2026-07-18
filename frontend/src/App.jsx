@@ -1544,6 +1544,24 @@ export default function App() {
           </div>
         )}
 
+        {!processing && images.length > 0 && images.filter(img => img.metadata === null).length > 0 && (
+          <div>
+            <div style={{ padding: '12px 24px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', background: 'rgba(0, 122, 255, 0.08)', color: 'var(--accent-color)' }}>
+              <span style={{ fontWeight: '500' }}>📥 Caricamento e lettura metadati foto...</span>
+              <span style={{ fontWeight: '600' }}>
+                {images.filter(img => img.metadata !== null).length} di {images.length} ({Math.round((images.filter(img => img.metadata !== null).length / images.length) * 100)}%)
+              </span>
+            </div>
+            <div className="batch-progress-bar" style={{ height: '4px' }}>
+              <div className="batch-progress-fill" style={{ 
+                width: `${(images.filter(img => img.metadata !== null).length / images.length) * 100}%`,
+                backgroundColor: 'var(--accent-color)',
+                height: '100%'
+              }}></div>
+            </div>
+          </div>
+        )}
+
         <div className="grid-container">
           {isScanning && (
             <div className="glass-overlay">
