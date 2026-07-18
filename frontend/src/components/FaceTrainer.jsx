@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as faceapi from '@vladmandic/face-api';
 import { loadFaceApiModels } from '../utils/faceRecognition';
 
@@ -15,10 +15,89 @@ export default function FaceTrainer({ onMatcherUpdated }) {
   const [training, setTraining] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   
+  // Cropper Modal State
+  const [showModal, setShowModal] = useState(false);
+  const [cropImage, setCropImage] = useState(null);
+  const [targetPersonIndex, setTargetPersonIndex] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState(null);
+  const [dragEnd, setDragEnd] = useState(null);
+  
+  const canvasRef = useRef(null);
+
   useEffect(() => {
     localStorage.setItem('trained_people', JSON.stringify(people));
     rebuildMatcher();
   }, [people]);
+
+  // Handle canvas drawing for cropper
+  useEffect(() => {
+    if (!showModal || !cropImage) return;
+    
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    const img = new Image();
+    img.src = cropImage;
+    img.onload = () => {
+      // Scale canvas to fit screen while keeping aspect ratio
+      const maxWidth = Math.min(window.innerWidth - 60, 500);
+      const maxHeight = 400;
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > maxWidth) {
+        height = (maxWidth / width) * height;
+        width = maxWidth;
+      }
+      if (height > maxHeight) {
+        width = (maxHeight / height) * width;
+        height = maxHeight;
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Draw selection overlay
+      if (dragStart && dragEnd) {
+        const x1 = Math.min(dragStart.x, dragEnd.x);
+        const y1 = Math.min(dragStart.y, dragEnd.y);
+        const w = Math.abs(dragStart.x - dragEnd.x);
+        const h = Math.abs(dragStart.y - dragEnd.y);
+        
+        // Draw dark semi-transparent overlay on outer areas
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(0, 0, width, y1);
+        ctx.fillRect(0, y1 + h, width, height - (y1 + h));
+        ctx.fillRect(0, y1, x1, h);
+        ctx.fillRect(x1 + w, y1, width - (x1 + w), h);
+        
+        // Selection border
+        ctx.strokeStyle = '#007aff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x1, y1, w, h);
+        
+        // Target corner marks
+        ctx.fillStyle = '#ffffff';
+        const markSize = 6;
+        ctx.fillRect(x1 - 3, y1 - 3, markSize, markSize);
+        ctx.fillRect(x1 + w - 3, y1 - 3, markSize, markSize);
+        ctx.fillRect(x1 - 3, y1 + h - 3, markSize, markSize);
+        ctx.fillRect(x1 + w - 3, y1 + h - 3, markSize, markSize);
+      } else {
+        // Draw hint text initially
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+        ctx.textAlign = 'center';
+        ctx.fillText('Trascina sul volto per ritagliarlo', width / 2, height / 2);
+      }
+    };
+  }, [cropImage, dragStart, dragEnd, isDragging, showModal]);
 
   const rebuildMatcher = async () => {
     const activePeople = people.filter(p => p.descriptors && p.descriptors.length > 0);
@@ -39,48 +118,121 @@ export default function FaceTrainer({ onMatcherUpdated }) {
     }
   };
 
-  const handlePhotoUpload = async (personIndex, e) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
+  const handlePhotoSelect = async (personIndex, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropImage(reader.result);
+      setTargetPersonIndex(personIndex);
+      setDragStart(null);
+      setDragEnd(null);
+      setShowModal(true);
+    };
+    reader.readAsDataURL(file);
+    // Reset file input
+    e.target.value = '';
+  };
+
+  const handleMouseDown = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setDragStart({ x, y });
+    setDragEnd({ x, y });
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, canvas.width));
+    const y = Math.max(0, Math.min(e.clientY - rect.top, canvas.height));
+    setDragEnd({ x, y });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleConfirmCrop = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !dragStart || !dragEnd) {
+      alert("Disegna una selezione sul volto prima di confermare.");
+      return;
+    }
+    
+    const x = Math.min(dragStart.x, dragEnd.x);
+    const y = Math.min(dragStart.y, dragEnd.y);
+    const w = Math.abs(dragStart.x - dragEnd.x);
+    const h = Math.abs(dragStart.y - dragEnd.y);
+    
+    if (w < 15 || h < 15) {
+      alert("Seleziona un'area del volto più grande.");
+      return;
+    }
     
     setTraining(true);
-    setStatusMessage(`Analisi del volto per ${people[personIndex].name}...`);
+    setStatusMessage(`Analisi del volto per ${people[targetPersonIndex].name}...`);
     
     try {
+      // Crop onto a temporary canvas
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = w;
+      tempCanvas.height = h;
+      const tempCtx = tempCanvas.getContext('2d');
+      
+      // Load original high-resolution image to crop from it for max detail
+      const img = new Image();
+      img.src = cropImage;
+      await new Promise((resolve) => (img.onload = resolve));
+      
+      // Calculate scale ratio between high-res image and canvas
+      const scaleX = img.width / canvas.width;
+      const scaleY = img.height / canvas.height;
+      
+      tempCtx.drawImage(
+        img,
+        x * scaleX,
+        y * scaleY,
+        w * scaleX,
+        h * scaleY,
+        0,
+        0,
+        w,
+        h
+      );
+      
+      const croppedBase64 = tempCanvas.toDataURL('image/jpeg', 0.9);
+      
+      // Run detection on the crop
+      const cropImgElement = new Image();
+      cropImgElement.src = croppedBase64;
+      await new Promise((resolve) => (cropImgElement.onload = resolve));
+      
       await loadFaceApiModels();
-      const updatedPeople = [...people];
-      
-      for (const file of files) {
-        // Read file as base64 to display and detect
-        const base64 = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.readAsDataURL(file);
-        });
+      const detection = await faceapi.detectSingleFace(cropImgElement)
+        .withFaceLandmarks()
+        .withFaceDescriptor();
         
-        // Create an image element to feed into face-api
-        const img = new Image();
-        img.src = base64;
-        await new Promise((resolve) => (img.onload = resolve));
-        
-        const detection = await faceapi.detectSingleFace(img)
-          .withFaceLandmarks()
-          .withFaceDescriptor();
-          
-        if (detection) {
-          updatedPeople[personIndex].photos.push(base64);
-          // Convert Float32Array to regular array for localStorage JSON serialization
-          updatedPeople[personIndex].descriptors.push(Array.from(detection.descriptor));
-          setStatusMessage(`Volto registrato con successo!`);
-        } else {
-          alert(`Nessun volto rilevato nella foto per ${people[personIndex].name}. Riprova con un'immagine più chiara.`);
-        }
+      if (detection) {
+        const updatedPeople = [...people];
+        updatedPeople[targetPersonIndex].photos.push(croppedBase64);
+        updatedPeople[targetPersonIndex].descriptors.push(Array.from(detection.descriptor));
+        setPeople(updatedPeople);
+        setStatusMessage(`Volto di ${people[targetPersonIndex].name} registrato!`);
+        setShowModal(false);
+      } else {
+        alert("Nessun volto rilevato in questa area. Centra meglio il viso includendo occhi e naso.");
       }
-      
-      setPeople(updatedPeople);
     } catch (err) {
       console.error(err);
-      setStatusMessage('Errore durante l\'addestramento.');
+      alert("Errore durante l'elaborazione dell'immagine.");
     } finally {
       setTraining(false);
       setTimeout(() => setStatusMessage(''), 3000);
@@ -104,8 +256,8 @@ export default function FaceTrainer({ onMatcherUpdated }) {
   return (
     <div className="inspector-section">
       <div className="inspector-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Libreria Volti</span>
-        <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={addPerson}>+ Aggiungi</button>
+        <span>Libreria Riconoscimento Volti</span>
+        <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={addPerson}>+ Aggiungi Persona</button>
       </div>
       
       {statusMessage && (
@@ -155,8 +307,7 @@ export default function FaceTrainer({ onMatcherUpdated }) {
                 <input 
                   type="file" 
                   accept="image/*" 
-                  multiple 
-                  onChange={(e) => handlePhotoUpload(personIdx, e)} 
+                  onChange={(e) => handlePhotoSelect(personIdx, e)} 
                   style={{ display: 'none' }}
                   disabled={training}
                 />
@@ -169,6 +320,80 @@ export default function FaceTrainer({ onMatcherUpdated }) {
           </div>
         ))}
       </div>
+
+      {/* Cropper Modal */}
+      {showModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.85)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div className="glass" style={{
+            backgroundColor: 'rgba(30, 30, 30, 0.95)',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '550px',
+            width: '100%',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: '#fff'
+          }}>
+            <h3 style={{ marginTop: 0, marginBottom: '8px', fontSize: '18px', fontWeight: '600' }}>
+              Seleziona il Volto
+            </h3>
+            <p style={{ fontSize: '13px', color: '#aaa', marginTop: 0, marginBottom: '16px' }}>
+              Trascina il cursore sopra il viso della persona per ritagliarlo precisamente.
+            </p>
+
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              backgroundColor: '#111', 
+              borderRadius: '8px',
+              overflow: 'hidden',
+              marginBottom: '20px',
+              position: 'relative',
+              userSelect: 'none'
+            }}>
+              <canvas
+                ref={canvasRef}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                style={{ cursor: 'crosshair', display: 'block' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowModal(false)}
+                disabled={training}
+                style={{ color: '#fff' }}
+              >
+                Annulla
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleConfirmCrop}
+                disabled={training}
+              >
+                {training ? '⏳ Rilevamento...' : 'Registra Volto'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
