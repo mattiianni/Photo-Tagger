@@ -259,7 +259,23 @@ export default function FaceTrainer({ people, onPeopleUpdated, onMatcherUpdated 
     <div className="inspector-section">
       <div className="inspector-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>Libreria Riconoscimento Volti</span>
-        <button className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '11px' }} onClick={addPerson}>+ Aggiungi Persona</button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', background: 'var(--success-color)', borderColor: 'var(--success-color)', color: '#fff' }} onClick={async () => {
+            try {
+              // The API_BASE logic isn't easily imported here if we rely on App.jsx, but we can use relative or localhost
+              const res = await fetch(`http://localhost:3001/api/sync-github`, { method: 'POST' });
+              const data = await res.json();
+              if (data.success) {
+                alert(data.message);
+              } else {
+                alert("Errore: " + data.error);
+              }
+            } catch (e) {
+              alert("Impossibile connettersi al server per la sincronizzazione.");
+            }
+          }}>☁️ Sincronizza su GitHub</button>
+          <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={addPerson}>+ Aggiungi Persona</button>
+        </div>
       </div>
       
       {statusMessage && (

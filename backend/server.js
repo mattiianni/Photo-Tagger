@@ -473,6 +473,26 @@ app.post("/api/trained-people", (req, res) => {
   }
 });
 
+// Endpoint to trigger a Git commit and push for the trained_people.json
+app.post("/api/sync-github", (req, res) => {
+  // We execute git from the root folder of the project
+  const repoRoot = path.join(__dirname, "..");
+  const cmd = `cd "${repoRoot}" && git add backend/trained_people.json && git commit -m "Auto-sync trained faces from Photo Tag Pro" && git push`;
+
+  exec(cmd, (error, stdout, stderr) => {
+    if (error) {
+      // If there are no changes to commit, git commit returns an error (exit code 1).
+      // We should check if it's just "nothing to commit"
+      if (stdout.includes("nothing to commit") || stderr.includes("nothing to commit")) {
+        return res.json({ success: true, message: "Tutto già sincronizzato! Nessuna modifica ai volti." });
+      }
+      console.error(`Error syncing to GitHub: ${error.message}`);
+      return res.status(500).json({ error: "Errore durante la sincronizzazione con GitHub", details: stderr || error.message });
+    }
+    res.json({ success: true, message: "Volti sincronizzati con successo su GitHub!" });
+  });
+});
+
 // Serve static frontend files in production
 const frontendBuildPath = path.join(__dirname, "../frontend/dist");
 app.use(express.static(frontendBuildPath));
