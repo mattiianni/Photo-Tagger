@@ -76,13 +76,17 @@ app.post("/api/scan", async (req, res) => {
         try {
           const tags = await exiftool.read(fullPath);
           existingMetadata = {
-            title: tags.Title || tags.ObjectName || "",
-            description: tags.Description || tags.ImageDescription || "",
-            keywords: tags.Keywords || tags.Subject || [],
+            title: tags.Title || tags.ObjectName || tags.XPTitle || "",
+            description: tags.Description || tags.ImageDescription || tags.CaptionAbstract || tags.UserComment || tags.Comment || tags.XPComment || "",
+            keywords: tags.Keywords || tags.Subject || tags.XPKeywords || [],
             date: tags.DateTimeOriginal || tags.CreateDate || stats.mtime
           };
-          if (typeof existingMetadata.keywords === "string") {
+          if (!existingMetadata.keywords) {
+            existingMetadata.keywords = [];
+          } else if (typeof existingMetadata.keywords === "string") {
             existingMetadata.keywords = [existingMetadata.keywords];
+          } else if (!Array.isArray(existingMetadata.keywords)) {
+            existingMetadata.keywords = Array.from(existingMetadata.keywords);
           }
         } catch (err) {
           console.error(`Error reading metadata for ${file}:`, err);
@@ -118,10 +122,20 @@ app.post("/api/write-metadata", async (req, res) => {
     // Keywords are written to both Keywords (IPTC) and Subject (XMP) for maximum compatibility with macOS Finder/Spotlight
     await exiftool.write(filePath, {
       Title: title,
+      ObjectName: title,
+      XPTitle: title,
+      
       Description: description,
+      ImageDescription: description,
+      "Caption-Abstract": description,
+      UserComment: description,
+      Comment: description,
+      XPComment: description,
+      
       Keywords: keywords,
       Subject: keywords,
-    });
+      XPKeywords: Array.isArray(keywords) ? keywords.join("; ") : keywords
+    }, ["-overwrite_original"]);
 
     // Optionally clean up backup files created by exiftool (filename_original)
     const backupFile = filePath + "_original";

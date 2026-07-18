@@ -232,8 +232,15 @@ export default function FaceTrainer({ onMatcherUpdated }) {
         .withFaceDescriptor();
         
       if (detection) {
+        const thumbCanvas = document.createElement('canvas');
+        thumbCanvas.width = 80;
+        thumbCanvas.height = 80;
+        const thumbCtx = thumbCanvas.getContext('2d');
+        thumbCtx.drawImage(cropImgElement, 0, 0, 80, 80);
+        const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.8);
+
         const updatedPeople = [...people];
-        updatedPeople[targetPersonIndex].photos.push(croppedBase64);
+        updatedPeople[targetPersonIndex].photos.push(thumbBase64);
         updatedPeople[targetPersonIndex].descriptors.push(Array.from(detection.descriptor));
         setPeople(updatedPeople);
         setStatusMessage(`Volto di ${people[targetPersonIndex].name} registrato!`);

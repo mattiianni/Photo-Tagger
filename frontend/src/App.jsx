@@ -488,7 +488,14 @@ export default function App() {
           targetPerson = { name, photos: [], descriptors: [] };
           trainedPeopleList.push(targetPerson);
         }
-        targetPerson.photos.push(croppedBase64);
+        const thumbCanvas = document.createElement('canvas');
+        thumbCanvas.width = 80;
+        thumbCanvas.height = 80;
+        const thumbCtx = thumbCanvas.getContext('2d');
+        thumbCtx.drawImage(cropImgElement, 0, 0, 80, 80);
+        const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.8);
+
+        targetPerson.photos.push(thumbBase64);
         targetPerson.descriptors.push(Array.from(detection.descriptor));
         localStorage.setItem('trained_people', JSON.stringify(trainedPeopleList));
 
