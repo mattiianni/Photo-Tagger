@@ -75,19 +75,26 @@ app.post("/api/scan", async (req, res) => {
         let existingMetadata = {};
         try {
           const tags = await exiftool.read(fullPath);
+          
+          const rawTitle = (tags.Title || tags.ObjectName || tags.XPTitle || "").toString().trim();
+          const rawDesc = (tags.Description || tags.ImageDescription || tags.CaptionAbstract || tags.UserComment || tags.Comment || tags.XPComment || "").toString().trim();
+          
+          let kw = tags.Keywords || tags.Subject || tags.XPKeywords || [];
+          if (!kw) {
+            kw = [];
+          } else if (typeof kw === "string") {
+            kw = [kw];
+          } else if (!Array.isArray(kw)) {
+            kw = Array.from(kw);
+          }
+          const cleanedKeywords = kw.map(k => k.toString().trim()).filter(k => k !== "");
+
           existingMetadata = {
-            title: tags.Title || tags.ObjectName || tags.XPTitle || "",
-            description: tags.Description || tags.ImageDescription || tags.CaptionAbstract || tags.UserComment || tags.Comment || tags.XPComment || "",
-            keywords: tags.Keywords || tags.Subject || tags.XPKeywords || [],
+            title: rawTitle,
+            description: rawDesc,
+            keywords: cleanedKeywords,
             date: tags.DateTimeOriginal || tags.CreateDate || stats.mtime
           };
-          if (!existingMetadata.keywords) {
-            existingMetadata.keywords = [];
-          } else if (typeof existingMetadata.keywords === "string") {
-            existingMetadata.keywords = [existingMetadata.keywords];
-          } else if (!Array.isArray(existingMetadata.keywords)) {
-            existingMetadata.keywords = Array.from(existingMetadata.keywords);
-          }
         } catch (err) {
           console.error(`Error reading metadata for ${file}:`, err);
         }
@@ -97,7 +104,7 @@ app.post("/api/scan", async (req, res) => {
           path: fullPath,
           size: stats.size,
           metadata: existingMetadata,
-          analyzed: !!(existingMetadata.title || existingMetadata.description || (existingMetadata.keywords && existingMetadata.keywords.length > 0))
+          analyzed: !!(existingMetadata.title || existingMetadata.description || existingMetadata.keywords.length > 0)
         });
       }
     }
