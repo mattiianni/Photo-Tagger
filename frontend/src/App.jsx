@@ -88,10 +88,6 @@ export default function App() {
 
   // Run AI analysis on a single image
   const analyzeImage = async (img) => {
-    if (!apiKey) {
-      alert("Inserisci la tua Gemini API Key nelle impostazioni.");
-      return null;
-    }
 
     try {
       // 1. Run local face-api.js detection in browser
@@ -181,7 +177,6 @@ export default function App() {
   // Run batch analysis
   const runBatchTagging = async () => {
     if (images.length === 0) return alert("Nessuna foto da analizzare.");
-    if (!apiKey) return alert("Inserisci la tua Gemini API Key.");
     
     setProcessing(true);
     setProgress(0);
