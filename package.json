@@ -1,7 +1,7 @@
 {
-  "name": "photo-archivist-parent",
+  "name": "photo-tag-pro",
   "version": "1.0.0",
-  "description": "PhotoArchivist AI workspace parent",
+  "description": "Photo Tag Pro workspace",
   "type": "module",
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
