@@ -719,45 +719,45 @@ export default function App() {
     setProcessing(true);
     setProgress(0);
     
-    const updatedImages = [...images];
-    
-    for (let i = 0; i < targetImages.length; i++) {
-      const targetImg = targetImages[i];
-      const mainIdx = updatedImages.findIndex(img => img.path === targetImg.path);
-      if (mainIdx === -1) continue;
+    try {
+      const updatedImages = [...images];
+      
+      for (let i = 0; i < targetImages.length; i++) {
+        const targetImg = targetImages[i];
+        const mainIdx = updatedImages.findIndex(img => img.path === targetImg.path);
+        if (mainIdx === -1) continue;
 
-      const img = updatedImages[mainIdx];
-      // Skip if we are running the global process and this image was already analyzed (unless forceAll is true).
-      // If the user selected specific images, we analyze them regardless of status.
-      if (!onlySelected && !forceAll && img.analyzed) {
-        setProgress(Math.round(((i + 1) / targetImages.length) * 100));
-        continue;
-      }
-      setCurrentProcessingName(img.name);
-      
-      const newMeta = await analyzeImage(img);
-      if (newMeta) {
-        updatedImages[mainIdx] = {
-          ...img,
-          metadata: newMeta,
-          analyzed: true,
-          isNew: true
-        };
-        // Update live
-        setImages([...updatedImages]);
-        if (selectedImage && selectedImage.path === img.path) {
-          setSelectedImage(updatedImages[mainIdx]);
+        const img = updatedImages[mainIdx];
+        if (!onlySelected && !forceAll && img.analyzed) {
+          setProgress(Math.round(((i + 1) / targetImages.length) * 100));
+          continue;
         }
+        setCurrentProcessingName(img.name);
+        
+        const newMeta = await analyzeImage(img);
+        if (newMeta) {
+          updatedImages[mainIdx] = {
+            ...img,
+            metadata: newMeta,
+            analyzed: true,
+            isNew: true
+          };
+          setImages([...updatedImages]);
+          if (selectedImage && selectedImage.path === img.path) {
+            setSelectedImage(updatedImages[mainIdx]);
+          }
+        }
+        
+        setProgress(Math.round(((i + 1) / targetImages.length) * 100));
       }
       
-      setProgress(Math.round(((i + 1) / targetImages.length) * 100));
-    }
-    
-    setProcessing(false);
-    setCurrentProcessingName('');
-    showToast("Analisi batch completata!");
-    if (onlySelected) {
-      clearImageSelection();
+      showToast("Analisi batch completata!");
+      if (onlySelected) {
+        clearImageSelection();
+      }
+    } finally {
+      setProcessing(false);
+      setCurrentProcessingName('');
     }
   };
 
@@ -814,48 +814,49 @@ export default function App() {
     setProcessing(true);
     let successCount = 0;
     
-    let currentPeopleList = [...people];
-    let anyTrainingUpdates = false;
+    try {
+      let currentPeopleList = [...people];
+      let anyTrainingUpdates = false;
+      const pathsSuccessfullySaved = [];
 
-    const pathsSuccessfullySaved = [];
-
-    for (let i = 0; i < toSave.length; i++) {
-      const img = toSave[i];
-      setCurrentProcessingName(`Scrittura metadati e volti: ${img.name}`);
-      const result = await saveImageMetadata(img, currentPeopleList);
-      if (result.success) {
-        successCount++;
-        pathsSuccessfullySaved.push(img.path);
+      for (let i = 0; i < toSave.length; i++) {
+        const img = toSave[i];
+        setCurrentProcessingName(`Scrittura metadati e volti: ${img.name}`);
+        const result = await saveImageMetadata(img, currentPeopleList);
+        if (result.success) {
+          successCount++;
+          pathsSuccessfullySaved.push(img.path);
+        }
+        if (result.hasNewTraining) {
+          currentPeopleList = result.newPeopleList;
+          anyTrainingUpdates = true;
+        }
+        setProgress(Math.round(((i + 1) / toSave.length) * 100));
       }
-      if (result.hasNewTraining) {
-        currentPeopleList = result.newPeopleList;
-        anyTrainingUpdates = true;
-      }
-      setProgress(Math.round(((i + 1) / toSave.length) * 100));
-    }
-    
-    if (pathsSuccessfullySaved.length > 0) {
-      setImages(prevImages => prevImages.map(img => 
-        pathsSuccessfullySaved.includes(img.path) ? { ...img, isNew: false } : img
-      ));
       
-      // If the selected image is among those saved, update it too
-      if (selectedImage && pathsSuccessfullySaved.includes(selectedImage.path)) {
-        setSelectedImage(prev => ({...prev, isNew: false}));
+      if (pathsSuccessfullySaved.length > 0) {
+        setImages(prevImages => prevImages.map(img => 
+          pathsSuccessfullySaved.includes(img.path) ? { ...img, isNew: false } : img
+        ));
+        
+        if (selectedImage && pathsSuccessfullySaved.includes(selectedImage.path)) {
+          setSelectedImage(prev => ({...prev, isNew: false}));
+        }
       }
-    }
-    
-    if (anyTrainingUpdates) {
-      await updatePeopleList(currentPeopleList);
-      showToast("Volti salvati nel database per il riconoscimento futuro!", "success");
-    }
+      
+      if (anyTrainingUpdates) {
+        await updatePeopleList(currentPeopleList);
+        showToast("Volti salvati nel database per il riconoscimento futuro!", "success");
+      }
 
-    setProcessing(false);
-    setCurrentProcessingName('');
-    setProgress(0);
-    showToast(`Salvataggio completato per ${successCount} di ${toSave.length} immagini.`);
-    if (onlySelected) {
-      clearImageSelection();
+      showToast(`Salvataggio completato per ${successCount} di ${toSave.length} immagini.`);
+      if (onlySelected) {
+        clearImageSelection();
+      }
+    } finally {
+      setProcessing(false);
+      setCurrentProcessingName('');
+      setProgress(0);
     }
   };;
 
