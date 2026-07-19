@@ -20,28 +20,20 @@ if ! command -v node &> /dev/null; then
   exit 1
 fi
 
-# First check if backend dependencies are installed, if not install them
-if [ ! -d "backend/node_modules" ]; then
-  echo "Installing backend dependencies..."
-  npm install --prefix backend
-fi
-
-
-
-# Kill any existing server running on 3001 using native tools
+# Kill any existing server running on 3001
 echo "Checking port 3001..."
 PORT_PID=$(lsof -t -i :3001)
 if [ ! -z "$PORT_PID" ]; then
   echo "Killing existing process on port 3001 (PID: $PORT_PID)..."
   kill -9 $PORT_PID
-  # Give the OS time to release the port
   sleep 1
 fi
 
-# Start the node server in background using robust nohup and absolute node path
+# Start the node server in background
 echo "Starting backend server..."
 NODE_BIN=$(command -v node)
-nohup "$NODE_BIN" backend/server.js > backend_server.log 2>&1 &
+"$NODE_BIN" backend/server.js > backend_server.log 2>&1 &
+NODE_PID=$!
 
 # Wait 2 seconds for the server to spin up
 sleep 2
@@ -50,5 +42,17 @@ sleep 2
 echo "Opening browser at http://localhost:3001..."
 open http://localhost:3001
 
-# Exit immediately
-exit 0
+# Function to handle cleanup on exit
+cleanup() {
+    echo "Shutting down Node server (PID: $NODE_PID)..."
+    kill -9 $NODE_PID 2>/dev/null
+    exit 0
+}
+
+# Trap SIGTERM (when user quits from Dock) and SIGINT
+trap cleanup SIGTERM SIGINT
+
+echo "Photo Tag Pro is running. Waiting for process $NODE_PID..."
+# Wait for the node process to keep the script running
+# This keeps the app icon in the Dock so the user can quit it gracefully!
+wait $NODE_PID
