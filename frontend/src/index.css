@@ -346,6 +346,19 @@ body {
 }
 
 /* Right Inspector panel */
+.inspector-resizer {
+  width: 6px;
+  cursor: col-resize;
+  background-color: transparent;
+  transition: background-color 0.2s;
+  z-index: 20;
+}
+
+.inspector-resizer:hover, .inspector-resizer:active {
+  background-color: var(--accent-color);
+  opacity: 0.5;
+}
+
 .inspector {
   width: var(--inspector-width);
   height: 100%;

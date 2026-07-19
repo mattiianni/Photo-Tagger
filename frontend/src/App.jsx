@@ -218,6 +218,36 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [selectedImagePaths, setSelectedImagePaths] = useState(new Set());
   const [filterState, setFilterState] = useState('all'); // 'all', 'analyzed', 'new', 'pending'
+  
+  // Resizer state
+  const [inspectorWidth, setInspectorWidth] = useState(() => {
+    const saved = localStorage.getItem('inspector_width');
+    return saved ? parseInt(saved, 10) : 340;
+  });
+  const isResizing = useRef(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizing.current) return;
+      const newWidth = window.innerWidth - e.clientX;
+      if (newWidth > 250 && newWidth < 800) {
+        setInspectorWidth(newWidth);
+        localStorage.setItem('inspector_width', newWidth);
+      }
+    };
+    const handleMouseUp = () => {
+      if (isResizing.current) {
+        isResizing.current = false;
+        document.body.style.cursor = 'default';
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   const showToast = (message, type = 'success') => {
     const id = Date.now() + Math.random();
@@ -1812,7 +1842,16 @@ export default function App() {
 
       {/* Inspector Right Panel */}
       {activeTab === 'photos' && selectedImage && (
-        <aside className="inspector glass">
+        <>
+          <div 
+            className="inspector-resizer"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              isResizing.current = true;
+              document.body.style.cursor = 'col-resize';
+            }}
+          />
+          <aside className="inspector glass" style={{ width: `${inspectorWidth}px` }}>
           <div className="inspector-section" style={{ textAlign: 'center' }}>
             <ImageWithFaceOverlays 
               imagePath={selectedImage.path} 
@@ -2022,6 +2061,7 @@ export default function App() {
             💾 Salva Foto Corrente
           </button>
         </aside>
+        </>
       )}
 
       {/* Manual Cropper Modal */}
