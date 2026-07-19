@@ -446,20 +446,90 @@ JSON structure example:
     }
 
     const data = await response.json();
-    let resultText = data.candidates[0].content.parts[0].text;
-    
-    // Clean up markdown block if present
-    if (resultText.includes("```")) {
-      resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
+    if (!data.candidates || !data.candidates[0].content) {
+      return res.status(500).json({ error: "Invalid response from Gemini API" });
     }
-    
-    const analysis = JSON.parse(resultText);
 
-    res.json({ success: true, analysis });
+    let textResponse = data.candidates[0].content.parts[0].text;
+    textResponse = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    let parsedJson = {};
+    try {
+      parsedJson = JSON.parse(textResponse);
+    } catch (e) {
+      console.error("Gemini returned invalid JSON:", textResponse);
+      return res.status(500).json({ error: "Gemini returned invalid JSON format" });
+    }
+
+    res.json(parsedJson);
+
   } catch (error) {
     console.error("Error during Gemini analysis:", error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Endpoint to rewrite text (title and description) when a person is modified
+app.post("/api/rewrite-text", async (req, res) => {
+  const { title, description, instruction } = req.body;
+  
+  let apiKey = "";
+  if (req.headers.authorization) {
+    const parts = req.headers.authorization.split(" ");
+    const token = parts.length === 2 && parts[0] === "Bearer" ? parts[1] : req.headers.authorization;
+    if (token && token.trim() !== "" && token.trim() !== "null" && token.trim() !== "undefined") {
+      apiKey = token.trim();
+    }
+  }
+  if (!apiKey) apiKey = (process.env.GEMINI_API_KEY || "").trim();
+  if (apiKey && apiKey.startsWith("AQ.Ab8RN6I20C")) apiKey = apiKey.replace("AQ.Ab8RN6I20C", "AQ.Ab8RN6I2OC");
+  
+  if (!apiKey) return res.status(500).json({ error: "Chiave API mancante." });
+
+  try {
+    const prompt = `Rewrite the following title and description according to the user instruction.
+IMPORTANT: Output ONLY a valid JSON object with the keys "title" and "description". Do not include any markdown blocks.
+Instruction: ${instruction}
+Language: Italian. Keep the rest of the context identical, just fix the grammar after applying the instruction.
+
+Original Title: ${title}
+Original Description: ${description}
+
+Output format:
+{
+  "title": "...",
+  "description": "..."
+}`;
+
+    const response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`,
+      JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
+      })
+    );
+
+    const data = await response.json();
+    if (!data.candidates || !data.candidates[0].content) {
+      return res.status(500).json({ error: "Invalid response from Gemini API" });
+    }
+
+    let textResponse = data.candidates[0].content.parts[0].text;
+    textResponse = textResponse.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    let parsedJson = {};
+    try {
+      parsedJson = JSON.parse(textResponse);
+    } catch (e) {
+      return res.status(500).json({ error: "Gemini returned invalid JSON format" });
+    }
+
+    res.json(parsedJson);
+
+  } catch (error) {
+    console.error("Error in rewrite-text:", error);
+    res.status(500).json({ error: "Error rewriting text with Gemini" });
+  }
+
 });
 
 const TRAINED_PEOPLE_FILE = path.join(__dirname, "trained_people.json");

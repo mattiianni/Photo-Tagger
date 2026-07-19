@@ -1117,93 +1117,37 @@ export default function App() {
         k.toLowerCase() !== 'sconosciuto' && 
         k.toLowerCase() !== 'unknown'
       );
-
-      // Clean up old name from keywords if not present on other faces
-      if (oldName && oldName.toLowerCase() !== 'sconosciuto' && oldName.toLowerCase() !== 'unknown' && oldName.toLowerCase() !== name.toLowerCase()) {
-        const oldNameStillExists = facesList.some((f, idx) => idx !== faceIndex && f.name && f.name.trim().toLowerCase() === oldName.trim().toLowerCase());
-        if (!oldNameStillExists) {
-          filteredKeywords = filteredKeywords.filter(k => k && k.trim().toLowerCase() !== oldName.trim().toLowerCase());
-        }
-      }
-
-      if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown' && !filteredKeywords.some(k => k && k.toLowerCase() === name.toLowerCase())) {
-        filteredKeywords.push(name);
-      }
-      updatedMeta.keywords = filteredKeywords;
-
-      // Dynamically update title and description based on names found in the text
-      const allRegisteredNames = trainedPeopleList.map(p => p.name);
       let title = updatedMeta.title || "";
       let description = updatedMeta.description || "";
 
-      // Clean up old name from title/description if not present on other faces
-      if (oldName && oldName.toLowerCase() !== 'sconosciuto' && oldName.toLowerCase() !== 'unknown' && oldName.toLowerCase() !== name.toLowerCase()) {
-        const oldNameStillExists = facesList.some((f, idx) => idx !== faceIndex && f.name && f.name.trim().toLowerCase() === oldName.trim().toLowerCase());
-        if (!oldNameStillExists) {
-          title = cleanNameFromText(title, oldName);
-          description = cleanNameFromText(description, oldName);
-        }
-      }
-
-      // Find which registered names are actually present in the title
-      const namesInTitle = allRegisteredNames.filter(n => {
-        if (!n) return false;
-        return title.toLowerCase().includes(n.toLowerCase());
-      });
-
-      // Ensure the newly identified name is included
-      const uniqueNewNamesInTitle = [...namesInTitle];
-      if (!uniqueNewNamesInTitle.some(n => n.toLowerCase() === name.toLowerCase())) {
-        uniqueNewNamesInTitle.push(name);
-      }
-
-      const oldNamesTitleFormatted = formatNamesItalian(namesInTitle);
-      const newNamesTitleFormatted = formatNamesItalian(uniqueNewNamesInTitle);
-
-      if (oldNamesTitleFormatted && title.toLowerCase().includes(oldNamesTitleFormatted.toLowerCase())) {
-        title = replaceCaseInsensitive(title, oldNamesTitleFormatted, newNamesTitleFormatted);
-      } else {
-        const updatedTitle = replaceGenericTerms(title, newNamesTitleFormatted);
-        if (updatedTitle !== title) {
-          title = updatedTitle;
+      setAnalyzingSingle(true);
+      try {
+        let instruction = "";
+        const wasUnknown = (!oldName || oldName.toLowerCase() === 'sconosciuto' || oldName.toLowerCase() === 'unknown');
+        if (wasUnknown) {
+           instruction = `Aggiungi la persona chiamata "${name}" alla frase. Integra la persona nel contesto (ad esempio, se prima si parlava genericamente di "un uomo" o "un bambino", sostituiscilo con "${name}"). Correggi la grammatica e non lasciare frasi a metà.`;
         } else {
-          if (title) {
-            title = `${newNamesTitleFormatted} - ${title}`;
-          } else {
-            title = newNamesTitleFormatted;
-          }
+           instruction = `Sostituisci la persona chiamata "${oldName}" con "${name}". Correggi le concordanze di genere o numero se necessario, e non lasciare frasi a metà. Mantenere il contesto identico.`;
         }
-      }
 
-      // Description
-      const namesInDesc = allRegisteredNames.filter(n => {
-        if (!n) return false;
-        return description.toLowerCase().includes(n.toLowerCase());
-      });
-
-      const uniqueNewNamesInDesc = [...namesInDesc];
-      if (!uniqueNewNamesInDesc.some(n => n.toLowerCase() === name.toLowerCase())) {
-        uniqueNewNamesInDesc.push(name);
-      }
-
-      const oldNamesDescFormatted = formatNamesItalian(namesInDesc);
-      const newNamesDescFormatted = formatNamesItalian(uniqueNewNamesInDesc);
-
-      if (oldNamesDescFormatted && description.toLowerCase().includes(oldNamesDescFormatted.toLowerCase())) {
-        description = replaceCaseInsensitive(description, oldNamesDescFormatted, newNamesDescFormatted);
-      } else {
-        const updatedDesc = replaceGenericTerms(description, newNamesDescFormatted);
-        if (updatedDesc !== description) {
-          description = updatedDesc;
-        } else {
-          if (description) {
-            description = `${newNamesDescFormatted}: ${description}`;
-          }
+        const response = await fetch(`${API_BASE}/api/rewrite-text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey.trim()}` },
+          body: JSON.stringify({
+            title: title,
+            description: description,
+            instruction: instruction
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          updatedMeta.title = data.title || title;
+          updatedMeta.description = data.description || description;
         }
+      } catch (e) {
+        console.error("AI text rewrite failed", e);
       }
-
-      updatedMeta.title = title;
-      updatedMeta.description = description;
 
       const updatedImage = {
         ...selectedImage,
@@ -1253,16 +1197,27 @@ export default function App() {
       }
 
       // 2. Remove the name from the title & description if present and not in other faces
-      let title = updatedMeta.title || "";
-      let description = updatedMeta.description || "";
-
       if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown' && !nameStillExists) {
-        title = cleanNameFromText(title, name);
-        description = cleanNameFromText(description, name);
+        setAnalyzingSingle(true);
+        try {
+          const response = await fetch(`${API_BASE}/api/rewrite-text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey.trim()}` },
+            body: JSON.stringify({
+              title: updatedMeta.title || "",
+              description: updatedMeta.description || "",
+              instruction: `Rimuovi la persona chiamata "${name}" dalla frase, correggendo la grammatica (es. aggiustando singolare/plurale o togliendo congiunzioni inutili) e mantenendo il resto del contesto intatto.`
+            })
+          });
+          if (response.ok) {
+            const data = await response.json();
+            updatedMeta.title = data.title || updatedMeta.title;
+            updatedMeta.description = data.description || updatedMeta.description;
+          }
+        } catch (e) {
+          console.error("AI text rewrite failed", e);
+        }
       }
-
-      updatedMeta.title = title;
-      updatedMeta.description = description;
 
       const updatedImage = {
         ...selectedImage,
