@@ -183,6 +183,13 @@ export default function App() {
   const [newGlobalTag, setNewGlobalTag] = useState('');
   useEffect(() => { localStorage.setItem('global_tags', JSON.stringify(globalTags)); }, [globalTags]);
 
+  const [eventPersons, setEventPersons] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('event_persons')) || []; }
+    catch(e) { return []; }
+  });
+  const [newEventPerson, setNewEventPerson] = useState('');
+  useEffect(() => { localStorage.setItem('event_persons', JSON.stringify(eventPersons)); }, [eventPersons]);
+
   // Modals & Settings
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
   const [faceMatcher, setFaceMatcher] = useState(null);
@@ -312,9 +319,12 @@ export default function App() {
 
   const updatePeopleList = async (newList) => {
     setPeople(newList);
-    localStorage.setItem('trained_people', JSON.stringify(newList));
     rebuildMatcher(newList);
-    await savePeopleToBackend(newList);
+    
+    // Filter out temporary event persons before saving permanently
+    const persistentPeople = newList.filter(p => !eventPersons.includes(p.name));
+    localStorage.setItem('trained_people', JSON.stringify(persistentPeople));
+    await savePeopleToBackend(persistentPeople);
   };
 
   // Load and migrate trained people database on mount
@@ -1527,6 +1537,48 @@ export default function App() {
             </div>
           </div>
 
+          <div className="sidebar-header" style={{ marginTop: '16px' }}>Persone Evento</div>
+          <div style={{ padding: '0 8px', marginBottom: '16px' }}>
+            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: 1.4 }}>
+              Aggiungi qui persone (es. "Roberto [M]") che si trovano solo in questo evento, così appariranno subito nel menu a tendina.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+              {eventPersons.map(tag => (
+                <div key={tag} className="tag-pill">
+                  {tag}
+                  <button onClick={() => setEventPersons(prev => prev.filter(t => t !== tag))}>×</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <input 
+                className="form-input" 
+                style={{ flex: 1 }} 
+                placeholder="Es. Roberto [M]" 
+                value={newEventPerson}
+                onChange={(e) => setNewEventPerson(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newEventPerson.trim()) {
+                    setEventPersons(prev => [...new Set([...prev, newEventPerson.trim()])]);
+                    setNewEventPerson('');
+                  }
+                }}
+              />
+              <button 
+                className="btn btn-secondary"
+                style={{ padding: '0 12px', flexShrink: 0 }}
+                onClick={() => {
+                  if (newEventPerson.trim()) {
+                    setEventPersons(prev => [...new Set([...prev, newEventPerson.trim()])]);
+                    setNewEventPerson('');
+                  }
+                }}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
           <div className="sidebar-header">Impostazioni</div>
           <div style={{ padding: '0 8px' }}>
             <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>Gemini API Key</label>
@@ -1888,10 +1940,19 @@ export default function App() {
                       onChange={(e) => handleIdentifyFace(index, e.target.value)}
                     >
                       <option value="Sconosciuto">Sconosciuto</option>
-                      {people.map(p => (
-                        <option key={p.name} value={p.name}>{p.name}</option>
-                      ))}
-                      <option value="new">+ Nuova persona...</option>
+                      {eventPersons.length > 0 && (
+                        <optgroup label="Persone Evento">
+                          {eventPersons.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <optgroup label="Database Volti Globale">
+                        {people.map(p => (
+                          <option key={p.name} value={p.name}>{p.name}</option>
+                        ))}
+                      </optgroup>
+                      <option value="new">+ Nuova persona (Personalizzata)...</option>
                     </select>
                     <button
                       title="Rimuovi persona rilevata"
