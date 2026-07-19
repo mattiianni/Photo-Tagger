@@ -461,7 +461,7 @@ JSON structure example:
       return res.status(500).json({ error: "Gemini returned invalid JSON format" });
     }
 
-    res.json(parsedJson);
+    res.json({ success: true, analysis: parsedJson });
 
   } catch (error) {
     console.error("Error during Gemini analysis:", error);
