@@ -191,6 +191,28 @@ async function scanDirectory(dirPath) {
   return images;
 }
 
+// Endpoint to natively pick a folder using macOS osascript
+app.get("/api/pick-folder", (req, res) => {
+  const script = `
+    tell application (path to frontmost application as text)
+      set myFolder to choose folder with prompt "Seleziona la cartella con le foto:"
+      POSIX path of myFolder
+    end tell
+  `;
+  exec(`osascript -e '${script}'`, (err, stdout, stderr) => {
+    if (err) {
+      console.error("osascript error:", stderr);
+      return res.status(500).json({ error: "Folder selection failed or cancelled" });
+    }
+    const selectedPath = stdout.trim();
+    if (selectedPath) {
+      res.json({ success: true, path: selectedPath });
+    } else {
+      res.status(400).json({ error: "No folder selected" });
+    }
+  });
+});
+
 // Endpoint to scan a local directory for images
 app.post("/api/scan", async (req, res) => {
   const { dirPath } = req.body;

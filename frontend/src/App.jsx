@@ -538,29 +538,24 @@ export default function App() {
     }
   };
 
-  const handleDrop = async (e) => {
+  const handlePickFolder = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/pick-folder`);
+      const data = await response.json();
+      if (data.success && data.path) {
+        setDirPath(data.path);
+        handleScanFolder(data.path);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Impossibile aprire il selettore cartelle.", "error");
+    }
+  };
+
+  const handleDrop = (e) => {
     e.preventDefault();
     setIsDragActive(false);
-    
-    const items = e.dataTransfer.items;
-    if (!items || items.length === 0) return;
-    
-    // Check if the first item is a folder/file
-    const entry = items[0].webkitGetAsEntry();
-    if (entry && entry.isDirectory) {
-      // It's a directory! Call scan folder with its name
-      handleScanFolder(entry.name);
-    } else if (items[0].kind === 'file') {
-      // Fallback if dropped a file or if webkitGetAsEntry failed
-      const file = items[0].getAsFile();
-      if (file && file.path) {
-        // If file.path is available (e.g. Electron/special browser contexts), parse it
-        const dir = file.path.substring(0, file.path.lastIndexOf('/'));
-        handleScanFolder(dir);
-      } else {
-        showToast("Rilascia una cartella valida invece di singoli file.", "error");
-      }
-    }
+    showToast("Per motivi di sicurezza di macOS, trascina la cartella qui non funziona. Usa il tasto 'Sfoglia' o incolla il percorso a sinistra.", "error");
   };
 
   // Downsample image in browser before sending to Gemini to save bandwidth and speed up analysis
@@ -1610,17 +1605,27 @@ export default function App() {
 
           <div className="sidebar-header">Percorso Cartella</div>
           <div style={{ padding: '0 8px', marginBottom: '24px' }}>
-            <input 
-              className="form-input" 
-              style={{ width: '100%', marginBottom: '8px' }} 
-              placeholder="/Users/.../Atene" 
-              value={dirPath}
-              onChange={(e) => setDirPath(e.target.value)}
-            />
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <input 
+                className="form-input" 
+                style={{ flex: 1, minWidth: 0 }} 
+                placeholder="/Users/.../Atene" 
+                value={dirPath}
+                onChange={(e) => setDirPath(e.target.value)}
+              />
+              <button 
+                className="btn btn-secondary" 
+                onClick={handlePickFolder}
+                title="Sfoglia cartelle"
+                style={{ padding: '8px', flexShrink: 0 }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              </button>
+            </div>
             <button 
-              className="btn btn-secondary" 
+              className="btn btn-primary" 
               style={{ width: '100%' }} 
-              onClick={handleScanFolder}
+              onClick={() => handleScanFolder()}
               disabled={isScanning}
             >
               {isScanning ? '⏳ Scansione...' : 'Carica Foto'}
