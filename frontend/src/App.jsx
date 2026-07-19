@@ -8,76 +8,7 @@ const API_BASE = window.location.port === '5173'
   ? `http://${window.location.hostname}:3001`
   : window.location.origin;
 
-const formatNamesItalian = (names) => {
-  if (!names || names.length === 0) return "";
-  const cleanNames = names.filter(n => n && n.trim() !== "");
-  if (cleanNames.length === 0) return "";
-  if (cleanNames.length === 1) return cleanNames[0];
-  if (cleanNames.length === 2) return `${cleanNames[0]} e ${cleanNames[1]}`;
-  return `${cleanNames.slice(0, -1).join(", ")} e ${cleanNames[cleanNames.length - 1]}`;
-};
 
-const replaceCaseInsensitive = (str, target, replacement) => {
-  if (!str || !target) return str;
-  const idx = str.toLowerCase().indexOf(target.toLowerCase());
-  if (idx === -1) return str;
-  return str.substring(0, idx) + replacement + str.substring(idx + target.length);
-};
-
-const cleanNameFromText = (text, name) => {
-  if (!text || !name) return text;
-  let cleaned = text;
-  
-  cleaned = cleaned.replace(new RegExp(`\\s+e\\s+${name}\\b`, 'gi'), "");
-  cleaned = cleaned.replace(new RegExp(`\\b${name}\\s+e\\s+`, 'gi'), "");
-  cleaned = cleaned.replace(new RegExp(`\\b${name}\\s*,\\s*`, 'gi'), "");
-  cleaned = cleaned.replace(new RegExp(`\\s*,\\s*${name}\\b`, 'gi'), "");
-  cleaned = cleaned.replace(new RegExp(`\\b${name}\\b`, 'gi'), "");
-
-  cleaned = cleaned
-    .replace(/\s*-\s*-\s*/g, " - ")
-    .replace(/,\s*,/g, ",")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  cleaned = cleaned.replace(/^[-:,\s]+|[-:,\s]+$/g, "");
-  return cleaned;
-};
-
-const replaceGenericTerms = (text, replacement) => {
-  if (!text) return text;
-  
-  const genericPatterns = [
-    { target: "madre e figlio", rep: replacement },
-    { target: "padre e figlio", rep: replacement },
-    { target: "donna e bambino", rep: replacement },
-    { target: "uomo e bambino", rep: replacement },
-    { target: "due persone", rep: replacement },
-    { target: "tre persone", rep: replacement },
-    { target: "una persona", rep: replacement },
-    { target: "la persona", rep: replacement },
-    { target: "un uomo", rep: replacement },
-    { target: "l'uomo", rep: replacement },
-    { target: "una donna", rep: replacement },
-    { target: "la donna", rep: replacement },
-    { target: "un bambino", rep: replacement },
-    { target: "il bambino", rep: replacement },
-    { target: "bambino", rep: replacement },
-    { target: "uomo", rep: replacement },
-    { target: "donna", rep: replacement },
-    { target: "persona", rep: replacement },
-    { target: "persone", rep: replacement }
-  ];
-
-  let updatedText = text;
-  for (const pattern of genericPatterns) {
-    if (updatedText.toLowerCase().includes(pattern.target)) {
-      updatedText = replaceCaseInsensitive(updatedText, pattern.target, pattern.rep);
-      return updatedText;
-    }
-  }
-  return updatedText;
-};
 
 const removeDescriptorFromPerson = (personList, personName, faceDescriptor) => {
   if (!faceDescriptor || !personName || personName.toLowerCase() === 'sconosciuto' || personName.toLowerCase() === 'unknown') return personList;
@@ -1375,72 +1306,28 @@ export default function App() {
       }
       updatedMeta.keywords = filteredKeywords;
 
-      // Dynamically update title and description based on names found in the text
-      const allRegisteredNames = trainedPeopleList.map(p => p.name);
       let title = updatedMeta.title || "";
       let description = updatedMeta.description || "";
 
-      // Find which registered names are actually present in the title (case-insensitive)
-      const namesInTitle = allRegisteredNames.filter(n => {
-        if (!n) return false;
-        return title.toLowerCase().includes(n.toLowerCase());
-      });
-
-      // Ensure the newly registered name is included in the new names list
-      const uniqueNewNamesInTitle = [...namesInTitle];
-      if (!uniqueNewNamesInTitle.some(n => n.toLowerCase() === name.toLowerCase())) {
-        uniqueNewNamesInTitle.push(name);
-      }
-
-      const oldNamesTitleFormatted = formatNamesItalian(namesInTitle);
-      const newNamesTitleFormatted = formatNamesItalian(uniqueNewNamesInTitle);
-
-      if (oldNamesTitleFormatted && title.toLowerCase().includes(oldNamesTitleFormatted.toLowerCase())) {
-        title = replaceCaseInsensitive(title, oldNamesTitleFormatted, newNamesTitleFormatted);
-      } else {
-        // Try to replace generic terms like "un uomo", "madre e figlio", etc. with the new names
-        const updatedTitle = replaceGenericTerms(title, newNamesTitleFormatted);
-        if (updatedTitle !== title) {
-          title = updatedTitle;
-        } else {
-          // Fallback: prepend
-          if (title) {
-            title = `${newNamesTitleFormatted} - ${title}`;
-          } else {
-            title = newNamesTitleFormatted;
-          }
+      try {
+        const response = await fetch(`${API_BASE}/api/rewrite-text`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey.trim()}` },
+          body: JSON.stringify({
+            title: title,
+            description: description,
+            instruction: `Aggiungi la persona chiamata "${name}" alla frase. Integra la persona nel contesto (ad esempio, se prima si parlava genericamente di "un uomo" o "un bambino", sostituiscilo con "${name}"). Correggi la grammatica e non lasciare frasi a metà.`
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          updatedMeta.title = data.title || title;
+          updatedMeta.description = data.description || description;
         }
+      } catch (e) {
+        console.error("AI text rewrite failed", e);
       }
-
-      // Do the same for description!
-      const namesInDesc = allRegisteredNames.filter(n => {
-        if (!n) return false;
-        return description.toLowerCase().includes(n.toLowerCase());
-      });
-
-      const uniqueNewNamesInDesc = [...namesInDesc];
-      if (!uniqueNewNamesInDesc.some(n => n.toLowerCase() === name.toLowerCase())) {
-        uniqueNewNamesInDesc.push(name);
-      }
-
-      const oldNamesDescFormatted = formatNamesItalian(namesInDesc);
-      const newNamesDescFormatted = formatNamesItalian(uniqueNewNamesInDesc);
-
-      if (oldNamesDescFormatted && description.toLowerCase().includes(oldNamesDescFormatted.toLowerCase())) {
-        description = replaceCaseInsensitive(description, oldNamesDescFormatted, newNamesDescFormatted);
-      } else {
-        const updatedDesc = replaceGenericTerms(description, newNamesDescFormatted);
-        if (updatedDesc !== description) {
-          description = updatedDesc;
-        } else {
-          if (description) {
-            description = `${newNamesDescFormatted}: ${description}`;
-          }
-        }
-      }
-
-      updatedMeta.title = title;
-      updatedMeta.description = description;
 
       const updatedImage = {
         ...selectedImage,
