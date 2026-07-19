@@ -385,7 +385,7 @@ app.post("/api/analyze-gemini", async (req, res) => {
 
     let peopleInstruction = "";
     if (detectedPeople && detectedPeople.length > 0) {
-      peopleInstruction = `\n- Le seguenti persone sono state riconosciute nella foto: ${detectedPeople.join(", ")}. Devi ASSOLUTAMENTE utilizzare questi NOMI SPECIFICI nei campi "title" e "description" invece di usare termini generici (es. usa "${detectedPeople.join(" e ")}" invece di "padre e figlio" o "madre e figlio" o "donna e bambino", etc.).`;
+      peopleInstruction = `\n- Le seguenti persone sono state riconosciute nella foto: ${detectedPeople.join(", ")}. Devi ASSOLUTAMENTE utilizzare questi NOMI SPECIFICI nei campi "title" e "description" invece di usare termini generici. IMPORTANTE: Se i nomi contengono tag come [M] (maschio), [F] (femmina), o [B] (bambino), usali SOLO per comprendere il sesso o l'età e coniugare correttamente la grammatica italiana. NON includere MAI i tag [M], [F], [B] nel testo finale generato.`;
     }
 
     let globalTagsInstruction = "";
@@ -491,6 +491,7 @@ app.post("/api/rewrite-text", async (req, res) => {
 IMPORTANT: Output ONLY a valid JSON object with the keys "title" and "description". Do not include any markdown blocks.
 Instruction: ${instruction}
 Language: Italian. Keep the rest of the context identical, just fix the grammar after applying the instruction.
+IMPORTANT: Se l'istruzione o i nomi contengono tag come [M] (maschio), [F] (femmina), o [B] (bambino), usali SOLO come contesto per coniugare correttamente la grammatica italiana. NON includere MAI i tag letterali [M], [F], [B] nel testo in output.
 
 Original Title: ${title}
 Original Description: ${description}
