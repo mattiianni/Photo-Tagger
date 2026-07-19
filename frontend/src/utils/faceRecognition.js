@@ -76,12 +76,16 @@ export async function detectAndMatchFaces(imageInput, matcher) {
     .withFaceLandmarks()
     .withFaceDescriptors();
     
-  if (!detections || detections.length === 0) {
+  // Filter out tiny faces (less than 5% of image height) to avoid tagging crowds
+  const minFaceHeight = img.height * 0.05;
+  const filteredDetections = detections.filter(d => d.detection.box.height >= minFaceHeight);
+    
+  if (!filteredDetections || filteredDetections.length === 0) {
     return [];
   }
   
   if (!matcher) {
-    return detections.map(d => ({
+    return filteredDetections.map(d => ({
       name: 'Sconosciuto',
       distance: 1.0,
       box: {
@@ -94,7 +98,7 @@ export async function detectAndMatchFaces(imageInput, matcher) {
     }));
   }
   
-  const rawMatches = detections.map(d => {
+  const rawMatches = filteredDetections.map(d => {
     const bestMatch = matcher.findBestMatch(d.descriptor);
     return {
       d,
