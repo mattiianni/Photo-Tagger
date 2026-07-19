@@ -1430,6 +1430,26 @@ export default function App() {
     };
   }, [manualCropImage, manualDragStart, manualDragEnd, isManualDragging, showManualCropModal]);
 
+  const filteredImages = images.filter(img => {
+    if (filterState === 'all') return true;
+    if (filterState === 'new') return img.isNew;
+    if (filterState === 'analyzed') return img.analyzed && !img.isNew;
+    if (filterState === 'pending') return !img.analyzed && !img.isNew;
+    return true;
+  });
+
+  const allFilteredSelected = filteredImages.length > 0 && filteredImages.every(img => selectedImagePaths.has(img.path));
+
+  const handleToggleAllFiltered = () => {
+    const newSet = new Set(selectedImagePaths);
+    if (allFilteredSelected) {
+      filteredImages.forEach(img => newSet.delete(img.path));
+    } else {
+      filteredImages.forEach(img => newSet.add(img.path));
+    }
+    setSelectedImagePaths(newSet);
+  };
+
   return (
     <div className="app-container">
       {/* Sidebar Left */}
@@ -1603,17 +1623,27 @@ export default function App() {
               {activeTab === 'travel-db' && 'Modifica Database dei Luoghi'}
             </span>
             {activeTab === 'photos' && images.length > 0 && (
-              <select
-                className="form-input"
-                style={{ fontSize: '12px', padding: '4px 8px', width: '140px', minHeight: 'unset' }}
-                value={filterState}
-                onChange={(e) => setFilterState(e.target.value)}
-              >
-                <option value="all">Tutte le foto</option>
-                <option value="new">🟢 Nuove</option>
-                <option value="pending">🟠 In Attesa</option>
-                <option value="analyzed">🔵 Analizzate</option>
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <select
+                  className="form-input"
+                  style={{ fontSize: '12px', padding: '4px 8px', width: '140px', minHeight: 'unset' }}
+                  value={filterState}
+                  onChange={(e) => setFilterState(e.target.value)}
+                >
+                  <option value="all">Tutte le foto</option>
+                  <option value="new">🟢 Nuove</option>
+                  <option value="pending">🟠 In Attesa</option>
+                  <option value="analyzed">🔵 Analizzate</option>
+                </select>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', cursor: 'pointer', margin: 0, color: 'var(--text-secondary)' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={allFilteredSelected}
+                    onChange={handleToggleAllFiltered}
+                  />
+                  <span>Seleziona Tutte</span>
+                </label>
+              </div>
             )}
           </div>
           {activeTab === 'photos' && images.length > 0 && (
@@ -1743,13 +1773,7 @@ export default function App() {
               </div>
             ) : (
               <div className="photo-grid">
-                {images.filter(img => {
-                  if (filterState === 'all') return true;
-                  if (filterState === 'new') return img.isNew;
-                  if (filterState === 'analyzed') return img.analyzed && !img.isNew;
-                  if (filterState === 'pending') return !img.analyzed && !img.isNew;
-                  return true;
-                }).map(img => (
+                {filteredImages.map(img => (
                   <div 
                     key={img.path} 
                     className={`photo-card ${selectedImagePaths.has(img.path) ? 'selected' : ''}`}
