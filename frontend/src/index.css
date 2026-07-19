@@ -178,6 +178,8 @@ body {
   -webkit-backdrop-filter: blur(20px) saturate(150%);
   user-select: none;
   z-index: 10;
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
 .toolbar-title {

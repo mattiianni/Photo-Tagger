@@ -1450,6 +1450,32 @@ export default function App() {
     setSelectedImagePaths(newSet);
   };
 
+  const handleResetSelectedTags = async () => {
+    if (selectedImagePaths.size === 0) return;
+    if (!confirm(`Sei sicuro di voler rimuovere i Tag (Parole Chiave IPTC) da ${selectedImagePaths.size} foto selezionate?`)) return;
+    
+    setProcessing(true);
+    let updatedImages = [...images];
+    
+    for (const imgPath of selectedImagePaths) {
+      const imgIdx = updatedImages.findIndex(img => img.path === imgPath);
+      if (imgIdx > -1 && updatedImages[imgIdx].metadata) {
+        updatedImages[imgIdx] = {
+          ...updatedImages[imgIdx],
+          metadata: {
+            ...updatedImages[imgIdx].metadata,
+            keywords: []
+          }
+        };
+        await saveImageMetadata(updatedImages[imgIdx]);
+      }
+    }
+    
+    setImages(updatedImages);
+    setProcessing(false);
+    showToast(`Tag rimossi da ${selectedImagePaths.size} foto.`);
+  };
+
   return (
     <div className="app-container">
       {/* Sidebar Left */}
@@ -1647,7 +1673,7 @@ export default function App() {
             )}
           </div>
           {activeTab === 'photos' && images.length > 0 && (
-            <div className="toolbar-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div className="toolbar-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
               {selectedImagePaths.size > 0 ? (
                 <>
                   <button 
@@ -1663,6 +1689,13 @@ export default function App() {
                     disabled={processing}
                   >
                     Salva ({selectedImagePaths.size})
+                  </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={handleResetSelectedTags} 
+                    disabled={processing}
+                  >
+                    Azzera Tag ({selectedImagePaths.size})
                   </button>
                   <button 
                     className="btn btn-secondary" 
