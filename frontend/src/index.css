@@ -167,11 +167,11 @@ body {
 }
 
 .toolbar {
-  height: 52px;
+  min-height: 52px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 16px 24px; /* Added padding to give breathing room */
   border-bottom: 0.5px solid var(--panel-border);
   background: var(--panel-bg);
   backdrop-filter: blur(20px) saturate(150%);

@@ -1665,7 +1665,7 @@ export default function App() {
             )}
           </div>
           {activeTab === 'photos' && images.length > 0 && (
-            <div className="toolbar-actions">
+            <div className="toolbar-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
               {selectedImagePaths.size > 0 ? (
                 <>
                   <button 
@@ -1684,7 +1684,10 @@ export default function App() {
                   </button>
                   <button 
                     className="btn btn-secondary" 
-                    onClick={clearImageSelection} 
+                    onClick={() => {
+                      setSelectedImagePaths(new Set());
+                      setShiftStartIdx(null);
+                    }} 
                     disabled={processing}
                     style={{ background: 'transparent' }}
                   >
@@ -2065,7 +2068,12 @@ export default function App() {
               });
             }}
           >
-            {analyzingSingle ? '⏳ Analisi in corso...' : '🔄 Rielabora Singola Foto'}
+            {analyzingSingle ? '⏳ Analisi in corso...' : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                Rielabora Foto
+              </>
+            )}
           </button>
 
           <button 
@@ -2083,7 +2091,12 @@ export default function App() {
               }
             }}
           >
-            💾 Salva Foto Corrente
+            {processing ? '⏳ Salvataggio...' : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                Salva Foto
+              </>
+            )}
           </button>
         </aside>
         </>
