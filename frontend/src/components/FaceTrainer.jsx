@@ -231,21 +231,17 @@ export default function FaceTrainer({ people, onPeopleUpdated, onMatcherUpdated 
   };
 
   const removePerson = (index) => {
-    if (confirm(`Sicuro di voler rimuovere ${people[index].name}?`)) {
-      const updated = people.filter((_, i) => i !== index);
-      onPeopleUpdated(updated);
-    }
+    const updated = people.filter((_, i) => i !== index);
+    onPeopleUpdated(updated);
   };
 
   const removePhoto = (personIdx, photoIdx) => {
-    if (confirm(`Sicuro di voler rimuovere questa foto dall'addestramento di ${people[personIdx].name}?`)) {
-      const updatedPeople = [...people];
-      updatedPeople[personIdx].photos = updatedPeople[personIdx].photos.filter((_, idx) => idx !== photoIdx);
-      if (updatedPeople[personIdx].descriptors) {
-        updatedPeople[personIdx].descriptors = updatedPeople[personIdx].descriptors.filter((_, idx) => idx !== photoIdx);
-      }
-      onPeopleUpdated(updatedPeople);
+    const updatedPeople = [...people];
+    updatedPeople[personIdx].photos = updatedPeople[personIdx].photos.filter((_, idx) => idx !== photoIdx);
+    if (updatedPeople[personIdx].descriptors) {
+      updatedPeople[personIdx].descriptors = updatedPeople[personIdx].descriptors.filter((_, idx) => idx !== photoIdx);
     }
+    onPeopleUpdated(updatedPeople);
   };
 
   const addPerson = () => {
