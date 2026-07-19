@@ -1564,21 +1564,33 @@ export default function App() {
       {/* Sidebar Left */}
       <aside className="sidebar sidebar-glass">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
-          <span style={{ fontSize: '24px' }}>📸</span>
-          <h1 style={{ fontSize: '18px', fontWeight: '700', letterSpacing: '-0.5px' }}>PhotoArchivist</h1>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="url(#gradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <defs>
+              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#007AFF" />
+                <stop offset="100%" stopColor="#34C759" />
+              </linearGradient>
+            </defs>
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          <h1 style={{ fontSize: '18px', fontWeight: '700', letterSpacing: '-0.5px' }}>Photo Tag Pro</h1>
         </div>
 
         <nav style={{ flexGrow: 1 }}>
           <div className="sidebar-header">Libreria</div>
           <ul className="sidebar-menu" style={{ marginBottom: '24px' }}>
             <li className={`sidebar-item ${activeTab === 'photos' ? 'active' : ''}`} onClick={() => setActiveTab('photos')}>
-              <span>🖼️</span> Foto
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '8px', verticalAlign: 'middle', opacity: 0.8}}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              <span>Foto</span>
             </li>
             <li className={`sidebar-item ${activeTab === 'faces' ? 'active' : ''}`} onClick={() => setActiveTab('faces')}>
-              <span>👤</span> Volti
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '8px', verticalAlign: 'middle', opacity: 0.8}}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4-4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              <span>Volti</span>
             </li>
             <li className={`sidebar-item ${activeTab === 'travel-db' ? 'active' : ''}`} onClick={() => setActiveTab('travel-db')}>
-              <span>🗺️</span> Database Luoghi
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '8px', verticalAlign: 'middle', opacity: 0.8}}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>
+              <span>Database Luoghi</span>
             </li>
           </ul>
 
@@ -1757,7 +1769,9 @@ export default function App() {
                 onDragLeave={() => setIsDragActive(false)}
                 onDrop={handleDrop}
               >
-                <span className="dropzone-icon">📁</span>
+                <div className="dropzone-icon" style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                </div>
                 <h3>Nessuna cartella caricata</h3>
                 <p style={{ marginTop: '8px' }}>Trascina qui la tua cartella o inserisci il percorso a sinistra.</p>
               </div>
