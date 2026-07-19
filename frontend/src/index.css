@@ -188,7 +188,7 @@ body {
 
 .toolbar-actions {
   display: flex;
-  gap: 12px;
+  gap: 16px;
   align-items: center;
 }
 

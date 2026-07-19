@@ -26,12 +26,7 @@ if [ ! -d "backend/node_modules" ]; then
   npm install --prefix backend
 fi
 
-# Build the frontend if dist does not exist
-if [ ! -d "frontend/dist" ]; then
-  echo "Building frontend..."
-  npm install --prefix frontend
-  npm run build --prefix frontend
-fi
+
 
 # Kill any existing server running on 3001 using native tools
 echo "Checking port 3001..."

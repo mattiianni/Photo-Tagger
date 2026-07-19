@@ -1614,27 +1614,26 @@ export default function App() {
               {selectedImagePaths.size > 0 ? (
                 <>
                   <button 
-                    className="btn btn-secondary" 
+                    className="btn btn-primary" 
                     onClick={() => runBatchTagging(true)} 
                     disabled={processing}
-                    style={{ backgroundColor: 'var(--accent-color)', color: '#fff' }}
                   >
-                    🤖 Analizza {selectedImagePaths.size} Selezionate
+                    Analizza ({selectedImagePaths.size})
                   </button>
                   <button 
-                    className="btn btn-primary" 
+                    className="btn btn-secondary" 
                     onClick={() => saveAllMetadata(true)} 
                     disabled={processing}
                   >
-                    💾 Salva {selectedImagePaths.size} Selezionate
+                    Salva ({selectedImagePaths.size})
                   </button>
                   <button 
                     className="btn btn-secondary" 
                     onClick={clearImageSelection} 
                     disabled={processing}
-                    style={{ border: '1px solid var(--border-color)', background: 'transparent' }}
+                    style={{ background: 'transparent' }}
                   >
-                    Annulla Selezione
+                    Annulla
                   </button>
                 </>
               ) : (
@@ -1647,34 +1646,33 @@ export default function App() {
                       runBatchTagging(false, false);
                     }
                   }} disabled={processing}>
-                    ⚙️ Analizza Tutto (Batch)
+                    Analizza Tutto
                   </button>
                   {selectedImage && (
                     <button 
-                      className="btn btn-success" 
-                      style={{ backgroundColor: 'var(--success-color)', borderColor: 'var(--success-color)', color: '#fff' }}
+                      className="btn btn-secondary" 
                       onClick={async () => {
                         setProcessing(true);
                         const success = await saveImageMetadata(selectedImage);
                         setProcessing(false);
                         if (success) {
-                          showToast(`Metadati di "${selectedImage.name}" salvati!`);
+                          showToast(`Metadati salvati!`);
                         } else {
-                          showToast("Errore durante il salvataggio dei metadati.", "error");
+                          showToast("Errore durante il salvataggio.", "error");
                         }
                       }}
                       disabled={processing}
                     >
-                      💾 Salva Selezionata
+                      Salva Corrente
                     </button>
                   )}
                   {images.some(img => img.isNew) && (
-                    <button className="btn btn-secondary" style={{ background: 'var(--success-color)', color: '#fff' }} onClick={() => saveAllMetadata(false, true)}>
-                      💾 Salva Solo Nuove ({images.filter(img => img.isNew).length})
+                    <button className="btn btn-primary" onClick={() => saveAllMetadata(false, true)}>
+                      Salva Nuove ({images.filter(img => img.isNew).length})
                     </button>
                   )}
-                  <button className="btn btn-primary" onClick={() => saveAllMetadata(false, false)} disabled={processing}>
-                    💾 Salva Tutte ({images.filter(img => img.analyzed).length})
+                  <button className="btn btn-secondary" onClick={() => saveAllMetadata(false, false)} disabled={processing}>
+                    Salva Tutte ({images.filter(img => img.analyzed).length})
                   </button>
                 </>
               )}
@@ -1744,8 +1742,13 @@ export default function App() {
                 }).map(img => (
                   <div 
                     key={img.path} 
-                    className={`photo-card ${selectedImage?.path === img.path ? 'selected' : ''}`}
-                    onClick={() => handleSelectImage(img)}
+                    className={`photo-card ${selectedImagePaths.has(img.path) ? 'selected' : ''}`}
+                    onClick={(e) => {
+                      if (e.target.tagName !== 'INPUT') {
+                        toggleImageSelection(img.path);
+                      }
+                      handleSelectImage(img);
+                    }}
                   >
                     <div className="photo-thumb-container" style={{ position: 'relative' }}>
                       <input 
@@ -1757,14 +1760,12 @@ export default function App() {
                         }}
                         style={{
                           position: 'absolute',
-                          top: '8px',
-                          left: '8px',
+                          top: '12px',
+                          left: '12px',
+                          transform: 'scale(1.2)',
                           zIndex: 10,
-                          width: '18px',
-                          height: '18px',
                           cursor: 'pointer',
-                          borderRadius: '4px',
-                          accentColor: 'var(--accent-color)'
+                          opacity: selectedImagePaths.has(img.path) ? 1 : 0.4
                         }}
                       />
                       <img 

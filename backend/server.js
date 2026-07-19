@@ -494,7 +494,7 @@ app.post("/api/sync-github", (req, res) => {
 });
 
 // Serve static frontend files in production
-const frontendBuildPath = path.join(__dirname, "../frontend/dist");
+const frontendBuildPath = path.join(__dirname, "public");
 app.use(express.static(frontendBuildPath));
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) {
