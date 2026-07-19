@@ -8,7 +8,14 @@ const API_BASE = window.location.port === '5173'
   ? `http://${window.location.hostname}:3001`
   : window.location.origin;
 
-
+const formatNamesItalian = (names) => {
+  if (!names || names.length === 0) return "";
+  const cleanNames = names.filter(n => n && n.trim() !== "");
+  if (cleanNames.length === 0) return "";
+  if (cleanNames.length === 1) return cleanNames[0];
+  if (cleanNames.length === 2) return `${cleanNames[0]} e ${cleanNames[1]}`;
+  return `${cleanNames.slice(0, -1).join(", ")} e ${cleanNames[cleanNames.length - 1]}`;
+};
 
 const removeDescriptorFromPerson = (personList, personName, faceDescriptor) => {
   if (!faceDescriptor || !personName || personName.toLowerCase() === 'sconosciuto' || personName.toLowerCase() === 'unknown') return personList;
