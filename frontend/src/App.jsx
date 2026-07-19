@@ -552,12 +552,6 @@ export default function App() {
     }
   };
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragActive(false);
-    showToast("Per motivi di sicurezza di macOS, trascina la cartella qui non funziona. Usa il tasto 'Sfoglia' o incolla il percorso a sinistra.", "error");
-  };
-
   // Downsample image in browser before sending to Gemini to save bandwidth and speed up analysis
   const downsampleImage = async (imagePath, maxDim = 1024) => {
     const url = `${API_BASE}/api/image?path=${encodeURIComponent(imagePath)}&size=preview`;
@@ -1782,17 +1776,15 @@ export default function App() {
           {activeTab === 'photos' && (
             images.length === 0 ? (
               <div 
-                className={`dropzone ${isDragActive ? 'active' : ''}`}
-                onClick={() => handleScanFolder()}
-                onDragOver={(e) => { e.preventDefault(); setIsDragActive(true); }}
-                onDragLeave={() => setIsDragActive(false)}
-                onDrop={handleDrop}
+                className="dropzone"
+                onClick={handlePickFolder}
+                style={{ cursor: 'pointer' }}
               >
                 <div className="dropzone-icon" style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
                   <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent-color)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                 </div>
                 <h3>Nessuna cartella caricata</h3>
-                <p style={{ marginTop: '8px' }}>Trascina qui la tua cartella o inserisci il percorso a sinistra.</p>
+                <p style={{ marginTop: '8px' }}>Clicca qui per sfogliare e selezionare la cartella con le tue foto.</p>
               </div>
             ) : (
               <div className="photo-grid">
