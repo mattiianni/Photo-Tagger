@@ -79,6 +79,50 @@ const replaceGenericTerms = (text, replacement) => {
   return updatedText;
 };
 
+const removeDescriptorFromPerson = (personList, personName, faceDescriptor) => {
+  if (!faceDescriptor || !personName || personName.toLowerCase() === 'sconosciuto' || personName.toLowerCase() === 'unknown') return personList;
+  const targetPersonIdx = personList.findIndex(p => p.name.toLowerCase() === personName.toLowerCase());
+  if (targetPersonIdx === -1) return personList;
+  
+  const targetPerson = personList[targetPersonIdx];
+  let matchIdx = -1;
+  for (let i = 0; i < targetPerson.descriptors.length; i++) {
+    const d = targetPerson.descriptors[i];
+    if (!d) continue;
+    
+    const dArray = d instanceof Float32Array ? d : Object.values(d);
+    const faceArray = faceDescriptor instanceof Float32Array ? faceDescriptor : Object.values(faceDescriptor);
+    
+    if (dArray.length !== faceArray.length) continue;
+    
+    let isMatch = true;
+    for (let j = 0; j < dArray.length; j++) {
+      if (Math.abs(dArray[j] - faceArray[j]) > 0.001) {
+        isMatch = false;
+        break;
+      }
+    }
+    if (isMatch) {
+      matchIdx = i;
+      break;
+    }
+  }
+  
+  if (matchIdx !== -1) {
+    const updatedPerson = { ...targetPerson };
+    updatedPerson.descriptors = [...targetPerson.descriptors];
+    updatedPerson.photos = [...targetPerson.photos];
+    
+    updatedPerson.descriptors.splice(matchIdx, 1);
+    updatedPerson.photos.splice(matchIdx, 1);
+    
+    const newList = [...personList];
+    newList[targetPersonIdx] = updatedPerson;
+    return newList;
+  }
+  return personList;
+};
+
 function ImageWithFaceOverlays({ imagePath, faces, hoveredFaceIndex }) {
   const [imgDims, setImgDims] = useState(null);
   const imgRef = useRef(null);
@@ -790,65 +834,8 @@ export default function App() {
     let hasNewTraining = false;
 
     try {
-      // Train faces if provided
-      if (updatedPeople && img.metadata && img.metadata.faces && img.metadata.faces.length > 0) {
-        for (const face of img.metadata.faces) {
-          const name = face.name;
-          if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown' && face.descriptor) {
-            
-            let targetPerson = updatedPeople.find(p => p.name.toLowerCase() === name.toLowerCase());
-            
-            // Check if descriptor already exists
-            const descStr = JSON.stringify(face.descriptor);
-            let alreadyHasDesc = false;
-            if (targetPerson && targetPerson.descriptors) {
-              alreadyHasDesc = targetPerson.descriptors.some(d => JSON.stringify(d) === descStr);
-            }
-
-            if (!alreadyHasDesc) {
-              // Extract face thumbnail
-              const imgObj = new Image();
-              imgObj.crossOrigin = "anonymous";
-              imgObj.src = `${API_BASE}/api/image?path=${encodeURIComponent(img.path)}&size=preview`;
-              await new Promise((resolve) => {
-                imgObj.onload = resolve;
-                imgObj.onerror = resolve; // Ignore errors
-              });
-
-              if (imgObj.width > 0) {
-                const box = face.box || { x: 0, y: 0, width: imgObj.width, height: imgObj.height };
-                const padX = box.width * 0.25;
-                const padY = box.height * 0.25;
-                const cx = Math.max(0, box.x - padX);
-                const cy = Math.max(0, box.y - padY);
-                const cw = Math.min(imgObj.width - cx, box.width + padX * 2);
-                const ch = Math.min(imgObj.height - cy, box.height + padY * 2);
-
-                const canvas = document.createElement('canvas');
-                canvas.width = cw;
-                canvas.height = ch;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(imgObj, cx, cy, cw, ch, 0, 0, cw, ch);
-
-                const thumbCanvas = document.createElement('canvas');
-                thumbCanvas.width = 80;
-                thumbCanvas.height = 80;
-                const thumbCtx = thumbCanvas.getContext('2d');
-                thumbCtx.drawImage(canvas, 0, 0, 80, 80);
-                const thumbBase64 = thumbCanvas.toDataURL('image/jpeg', 0.8);
-
-                if (!targetPerson) {
-                  targetPerson = { name, photos: [], descriptors: [] };
-                  updatedPeople.push(targetPerson);
-                }
-                targetPerson.photos.push(thumbBase64);
-                targetPerson.descriptors.push(face.descriptor);
-                hasNewTraining = true;
-              }
-            }
-          }
-        }
-      }
+      // Train faces if provided - DISABLED to avoid model poisoning with auto-predicted faces
+      // Only explicitly verified faces in the UI will now be added to the training set.
 
       const response = await fetch(`${API_BASE}/api/write-metadata`, {
         method: 'POST',
@@ -1071,6 +1058,14 @@ export default function App() {
 
       // 2. Save the face descriptor and photo to the people database (skip for Sconosciuto)
       let trainedPeopleList = [...people];
+      
+      const oldName = face.name;
+      
+      // If the face was previously assigned to someone else, REMOVE IT from their trained list!
+      if (oldName && oldName.toLowerCase() !== name.toLowerCase()) {
+        trainedPeopleList = removeDescriptorFromPerson(trainedPeopleList, oldName, face.descriptor);
+      }
+
       if (name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
         if (trainedPeopleList.length === 0) {
           trainedPeopleList = [
@@ -1086,19 +1081,31 @@ export default function App() {
           trainedPeopleList.push(targetPerson);
         }
 
+        // Avoid pushing duplicates
+        let alreadyHasDesc = false;
         if (face.descriptor) {
+          const newFaceArray = face.descriptor instanceof Float32Array ? face.descriptor : Object.values(face.descriptor);
+          alreadyHasDesc = targetPerson.descriptors.some(d => {
+            const dArray = d instanceof Float32Array ? d : Object.values(d);
+            if (dArray.length !== newFaceArray.length) return false;
+            for (let j = 0; j < dArray.length; j++) {
+              if (Math.abs(dArray[j] - newFaceArray[j]) > 0.001) return false;
+            }
+            return true;
+          });
+        }
+
+        if (face.descriptor && !alreadyHasDesc) {
           targetPerson.photos.push(thumbBase64);
           targetPerson.descriptors.push(face.descriptor);
         }
-
-        await updatePeopleList(trainedPeopleList);
       }
+      
+      await updatePeopleList(trainedPeopleList);
 
       // 3. Update the metadata in the React state for this image
       const updatedMeta = { ...selectedImage.metadata };
       const facesList = [...(updatedMeta.faces || [])];
-      
-      const oldName = face.name;
 
       // Update this face's name and set confidence to 100%
       facesList[faceIndex] = {
@@ -1234,6 +1241,13 @@ export default function App() {
       const name = removedFace.name;
 
       updatedMeta.faces = facesList;
+      
+      // Remove the face from the trained people database if it was assigned to someone
+      let trainedPeopleList = [...people];
+      if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
+        trainedPeopleList = removeDescriptorFromPerson(trainedPeopleList, name, removedFace.descriptor);
+        await updatePeopleList(trainedPeopleList);
+      }
 
       // 1. Remove the name from keywords if it's no longer present in other faces
       const nameStillExists = facesList.some(f => f.name && f.name.trim().toLowerCase() === name.trim().toLowerCase());
