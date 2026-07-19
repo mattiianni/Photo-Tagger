@@ -339,7 +339,7 @@ app.post("/api/write-metadata", async (req, res) => {
 
 // Endpoint to run Gemini Vision analysis
 app.post("/api/analyze-gemini", async (req, res) => {
-  const { filePath, base64Image, customPrompt, landmarksDb, detectedPeople } = req.body;
+  const { filePath, base64Image, customPrompt, landmarksDb, detectedPeople, globalTags } = req.body;
   
   let base64Data = "";
   if (base64Image) {
@@ -388,6 +388,11 @@ app.post("/api/analyze-gemini", async (req, res) => {
       peopleInstruction = `\n- Le seguenti persone sono state riconosciute nella foto: ${detectedPeople.join(", ")}. Devi ASSOLUTAMENTE utilizzare questi NOMI SPECIFICI nei campi "title" e "description" invece di usare termini generici (es. usa "${detectedPeople.join(" e ")}" invece di "padre e figlio" o "madre e figlio" o "donna e bambino", etc.).`;
     }
 
+    let globalTagsInstruction = "";
+    if (globalTags && globalTags.length > 0) {
+      globalTagsInstruction = `\n- L'utente ha fornito il seguente CONTESTO GLOBALE per questa foto: "${globalTags.join(", ")}". Devi ASSOLUTAMENTE usare questo contesto per identificare il luogo, l'evento o la situazione. Inoltre, aggiungi SEMPRE esattamente questi tag ("${globalTags.join('", "')}") all'interno dell'array "suggestedKeywords".`;
+    }
+
     const prompt = `Analyze this photo. Return a JSON object with the following fields:
 - "title": A short, descriptive title (e.g. "Mattia e Samuele davanti al Partenone").
 - "description": A rich, natural description of the image content, context, and elements (e.g. for search indexing).
@@ -402,7 +407,7 @@ app.post("/api/analyze-gemini", async (req, res) => {
 Guidelines:
 - Return ONLY valid JSON, no markdown formatting blocks.
 - Match this travel database/context if applicable: ${JSON.stringify(landmarksDb || {})}
-- Language: Italian.${peopleInstruction}
+- Language: Italian.${peopleInstruction}${globalTagsInstruction}
 
 JSON structure example:
 {

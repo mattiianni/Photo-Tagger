@@ -238,8 +238,14 @@ export default function App() {
   const [dirPath, setDirPath] = useState(() => localStorage.getItem('last_dir_path') || '');
   const [images, setImages] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
-  
-  // Settings
+  const [globalTags, setGlobalTags] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('global_tags')) || []; }
+    catch(e) { return []; }
+  });
+  const [newGlobalTag, setNewGlobalTag] = useState('');
+  useEffect(() => { localStorage.setItem('global_tags', JSON.stringify(globalTags)); }, [globalTags]);
+
+  // Modals & Settings
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
   const [faceMatcher, setFaceMatcher] = useState(null);
   const [landmarksDb, setLandmarksDb] = useState({});
@@ -632,7 +638,8 @@ export default function App() {
               filePath: base64Image ? undefined : img.path,
               base64Image: base64Image ? base64Image.split(',')[1] : undefined,
               landmarksDb,
-              detectedPeople: detectedFaces.filter(f => f.name && f.name !== 'Sconosciuto' && f.name !== 'unknown' && f.name !== 'Unknown').map(f => f.name)
+              detectedPeople: detectedFaces.filter(f => f.name && f.name !== 'Sconosciuto' && f.name !== 'unknown' && f.name !== 'Unknown').map(f => f.name),
+              globalTags
             })
           });
 
@@ -1624,6 +1631,48 @@ export default function App() {
             >
               {isScanning ? '⏳ Scansione...' : 'Carica Foto'}
             </button>
+          </div>
+
+          <div className="sidebar-header" style={{ marginTop: '16px' }}>Contesto & Tag Globali</div>
+          <div style={{ padding: '0 8px', marginBottom: '24px' }}>
+            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.3' }}>
+              Forza l'AI a contestualizzare queste parole (es. "Motor Show Bologna") in tutte le foto.
+            </p>
+            <div className="chips-container" style={{ marginBottom: globalTags.length > 0 ? '8px' : '0', padding: 0 }}>
+              {globalTags.map(tag => (
+                <span key={tag} className="chip">
+                  {tag}
+                  <button className="chip-remove" onClick={() => setGlobalTags(prev => prev.filter(t => t !== tag))}>×</button>
+                </span>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Es. Parigi 2026..."
+                value={newGlobalTag}
+                onChange={e => setNewGlobalTag(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && newGlobalTag.trim()) {
+                    setGlobalTags(prev => [...new Set([...prev, newGlobalTag.trim()])]);
+                    setNewGlobalTag('');
+                  }
+                }}
+              />
+              <button 
+                className="btn btn-secondary"
+                style={{ padding: '0 12px', flexShrink: 0 }}
+                onClick={() => {
+                  if (newGlobalTag.trim()) {
+                    setGlobalTags(prev => [...new Set([...prev, newGlobalTag.trim()])]);
+                    setNewGlobalTag('');
+                  }
+                }}
+              >
+                +
+              </button>
+            </div>
           </div>
 
           <div className="sidebar-header">Impostazioni</div>
