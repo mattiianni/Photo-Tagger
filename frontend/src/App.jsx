@@ -914,7 +914,6 @@ export default function App() {
     if (!selectedImage) return;
     const imageSrc = `${API_BASE}/api/image?path=${encodeURIComponent(selectedImage.path)}&size=preview`;
     
-    // Get first person in the trained list to set as default select option
     const trainedPeopleList = people.length > 0 ? people : [
       { name: 'Mattia', photos: [], descriptors: [] },
       { name: 'Tiziana', photos: [], descriptors: [] },
@@ -922,7 +921,7 @@ export default function App() {
     ];
     
     setManualCropImage(imageSrc);
-    setSelectedPersonForCrop(trainedPeopleList[0]?.name || 'Mattia');
+    setSelectedPersonForCrop(eventPersons.length > 0 ? eventPersons[0] : (trainedPeopleList[0]?.name || 'Mattia'));
     setCustomPersonName('');
     setManualDragStart(null);
     setManualDragEnd(null);
@@ -2083,15 +2082,24 @@ export default function App() {
                 value={selectedPersonForCrop}
                 onChange={(e) => setSelectedPersonForCrop(e.target.value)}
               >
-                {(() => {
-                  const list = people.length > 0 ? people : [
-                    { name: 'Mattia' }, { name: 'Tiziana' }, { name: 'Samuele' }
-                  ];
-                  return list.map(p => (
-                    <option key={p.name} value={p.name}>{p.name}</option>
-                  ));
-                })()}
-                <option value="new">+ Nuova Persona...</option>
+                {eventPersons.length > 0 && (
+                  <optgroup label="Persone Evento">
+                    {eventPersons.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="Database Volti Globale">
+                  {(() => {
+                    const list = people.length > 0 ? people : [
+                      { name: 'Mattia' }, { name: 'Tiziana' }, { name: 'Samuele' }
+                    ];
+                    return list.map(p => (
+                      <option key={p.name} value={p.name}>{p.name}</option>
+                    ));
+                  })()}
+                </optgroup>
+                <option value="new">+ Nuova Persona (Personalizzata)...</option>
               </select>
 
               {selectedPersonForCrop === 'new' && (
