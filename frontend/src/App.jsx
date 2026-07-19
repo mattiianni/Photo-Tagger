@@ -1171,6 +1171,8 @@ export default function App() {
     } catch (err) {
       console.error("Error removing face:", err);
       showToast("Errore durante la rimozione della persona.", "error");
+    } finally {
+      setAnalyzingSingle(false);
     }
   };
 
