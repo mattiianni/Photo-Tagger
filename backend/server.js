@@ -8,8 +8,14 @@ import dotenv from "dotenv";
 import https from "https";
 import crypto from "crypto";
 import { exec } from "child_process";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.join(__dirname, "..");
+try {
+  process.chdir(repoRoot);
+} catch (e) {}
 
-dotenv.config();
+dotenv.config({ path: path.join(repoRoot, ".env") });
 
 // Helper function to perform HTTPS POST request using native Node https module
 function httpsPost(url, body) {
@@ -59,8 +65,6 @@ function httpsPost(url, body) {
   });
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -606,6 +610,14 @@ app.post("/api/sync-github", (req, res) => {
     }
     res.json({ success: true, message: "Volti sincronizzati con successo su GitHub!" });
   });
+});
+
+// Endpoint to gracefully shut down the local server
+app.post("/api/shutdown", (req, res) => {
+  res.json({ success: true, message: "Server spento con successo." });
+  setTimeout(() => {
+    process.exit(0);
+  }, 400);
 });
 
 // Serve static frontend files in production

@@ -244,6 +244,16 @@ export default function App() {
     };
   }, []);
 
+  // Heartbeat sender to keep local server alive
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      fetch(`${API_BASE}/api/heartbeat`, { method: 'POST' }).catch(() => {});
+    };
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   const showToast = (message, type = 'success') => {
     const id = Date.now() + Math.random();
     setToasts(prev => [...prev, { id, message, type }]);
@@ -1452,22 +1462,29 @@ export default function App() {
 
   const handleResetSelectedTags = async () => {
     if (selectedImagePaths.size === 0) return;
-    if (!confirm(`Sei sicuro di voler rimuovere i Tag (Parole Chiave IPTC) da ${selectedImagePaths.size} foto selezionate?`)) return;
     
     setProcessing(true);
     let updatedImages = [...images];
     
     for (const imgPath of selectedImagePaths) {
       const imgIdx = updatedImages.findIndex(img => img.path === imgPath);
-      if (imgIdx > -1 && updatedImages[imgIdx].metadata) {
-        updatedImages[imgIdx] = {
+      if (imgIdx > -1) {
+        const updatedImg = {
           ...updatedImages[imgIdx],
+          analyzed: false,
           metadata: {
-            ...updatedImages[imgIdx].metadata,
-            keywords: []
+            title: '',
+            description: '',
+            keywords: [],
+            faces: []
           }
         };
-        await saveImageMetadata(updatedImages[imgIdx]);
+        updatedImages[imgIdx] = updatedImg;
+        await saveImageMetadata(updatedImg);
+        
+        if (selectedImage && selectedImage.path === imgPath) {
+          setSelectedImage(updatedImg);
+        }
       }
     }
     
@@ -1630,11 +1647,25 @@ export default function App() {
             <input 
               type="password"
               className="form-input" 
-              style={{ width: '100%' }} 
+              style={{ width: '100%', marginBottom: '12px' }} 
               placeholder="Inserisci API Key" 
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
             />
+            <button
+              className="btn btn-secondary"
+              style={{ width: '100%', fontSize: '11px', color: '#ff5c5c', borderColor: 'rgba(255,92,92,0.3)', padding: '6px' }}
+              onClick={async () => {
+                if (confirm("Vuoi spegnere il server di Photo Tag Pro?")) {
+                  try {
+                    await fetch(`${API_BASE}/api/shutdown`, { method: 'POST' });
+                  } catch (e) {}
+                  alert("Server spento. Puoi chiudere questa scheda del browser.");
+                }
+              }}
+            >
+              ⏻ Spegni Server
+            </button>
           </div>
         </nav>
       </aside>
@@ -1673,7 +1704,7 @@ export default function App() {
             )}
           </div>
           {activeTab === 'photos' && images.length > 0 && (
-            <div className="toolbar-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="toolbar-actions">
               {selectedImagePaths.size > 0 ? (
                 <>
                   <button 
@@ -1704,7 +1735,6 @@ export default function App() {
                       setShiftStartIdx(null);
                     }} 
                     disabled={processing}
-                    style={{ background: 'transparent' }}
                   >
                     Annulla
                   </button>

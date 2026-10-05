@@ -49,7 +49,5 @@
 	<string>This script needs access to administer this system to run.</string>
 	<key>OSAAppletShowStartupScreen</key>
 	<false/>
-	<key>OSAAppletStayOpen</key>
-	<true/>
 </dict>
 </plist>
