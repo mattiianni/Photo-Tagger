@@ -10,12 +10,63 @@ const API_BASE = window.location.port === '5173'
 
 const formatNamesItalian = (names) => {
   if (!names || names.length === 0) return "";
-  const cleanNames = names.filter(n => n && n.trim() !== "");
+  const cleanNames = [...new Set(names.map(n => n && n.trim()).filter(Boolean))];
   if (cleanNames.length === 0) return "";
   if (cleanNames.length === 1) return cleanNames[0];
   if (cleanNames.length === 2) return `${cleanNames[0]} e ${cleanNames[1]}`;
   return `${cleanNames.slice(0, -1).join(", ")} e ${cleanNames[cleanNames.length - 1]}`;
 };
+
+// Helper function to prevent any duplicate person names in titles and descriptions
+const cleanDuplicateNames = (text, knownNames = []) => {
+  if (!text || typeof text !== "string") return text;
+  let s = text;
+
+  // 1. Remove duplicate prefix like "Mattia - Mattia ..." or "Mattia: Mattia ..."
+  s = s.replace(/^([A-ZÀ-ÿa-z0-9_-]+)\s*[-:]\s*\1\s*/gi, "$1 ");
+
+  // 2. Collapse immediate repeated words with "e", "ed", ","
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+)(?:\s*(?:,|e|ed)\s+\1)+\b/gi, "$1");
+  } while (s !== prev);
+
+  // 3. For all known names, ensure at most 1 occurrence across the entire text
+  const namesToCheck = new Set(
+    (knownNames && knownNames.length > 0)
+      ? knownNames.map(n => n && n.trim().replace(/\s*\[[MFB]\]/i, "")).filter(Boolean)
+      : []
+  );
+
+  for (const name of namesToCheck) {
+    if (!name || name.length < 2) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`\\b${escaped}\\b`, "gi");
+    const matches = s.match(regex);
+    if (!matches || matches.length <= 1) continue;
+
+    let seen = 0;
+    const subRegex = new RegExp(`(?:\\s*(?:,|e|ed)\\s+)?\\b${escaped}\\b`, "gi");
+    s = s.replace(subRegex, (match) => {
+      seen++;
+      if (seen === 1) return match;
+      return "";
+    });
+  }
+
+  // 4. Polish any resulting double spaces, dangling commas or conjunctions
+  s = s.replace(/\s*,\s*e\b/gi, " e")
+       .replace(/\be\s+e\b/gi, "e")
+       .replace(/\s{2,}/g, " ")
+       .trim();
+
+  // 5. Polish dangling prepositions or conjunctions at end
+  s = s.replace(/\s+\b(con|e|ed|in|su|tra|fra|di|a|da)\s*$/gi, "").trim();
+
+  return s;
+};
+
 
 const removeDescriptorFromPerson = (personList, personName, faceDescriptor) => {
   if (!faceDescriptor || !personName || personName.toLowerCase() === 'sconosciuto' || personName.toLowerCase() === 'unknown') return personList;
@@ -596,7 +647,7 @@ export default function App() {
               filePath: base64Image ? undefined : img.path,
               base64Image: base64Image ? base64Image.split(',')[1] : undefined,
               landmarksDb,
-              detectedPeople: detectedFaces.filter(f => f.name && f.name !== 'Sconosciuto' && f.name !== 'unknown' && f.name !== 'Unknown').map(f => f.name),
+              detectedPeople: [...new Set(detectedFaces.filter(f => f.name && f.name.toLowerCase() !== 'sconosciuto' && f.name.toLowerCase() !== 'unknown').map(f => f.name.trim()).filter(Boolean))],
               globalTags
             })
           });
@@ -678,20 +729,22 @@ export default function App() {
         finalKeywords.add("Viaggio");
       }
 
-      // Ensure recognized faces are in the title and description
-      const recognizedNames = detectedFaces
-        .filter(f => f.name && f.name !== 'Sconosciuto' && f.name !== 'unknown' && f.name !== 'Unknown')
-        .map(f => f.name);
+      // Ensure recognized faces are in the title and description without duplicates
+      const recognizedNames = [...new Set(
+        detectedFaces
+          .filter(f => f.name && f.name.toLowerCase() !== 'sconosciuto' && f.name.toLowerCase() !== 'unknown')
+          .map(f => f.name.trim())
+          .filter(Boolean)
+      )];
 
       let finalTitle = analysis.title || img.metadata?.title || img.name;
       let finalDescription = analysis.description || img.metadata?.description || '';
 
       if (recognizedNames.length > 0) {
-        const namesFormatted = formatNamesItalian(recognizedNames);
-        
-        // Ensure title contains all recognized names
-        const containsNamesTitle = recognizedNames.every(name => finalTitle.toLowerCase().includes(name.toLowerCase()));
-        if (!containsNamesTitle) {
+        // Prepend only missing names to title if any
+        const missingInTitle = recognizedNames.filter(name => !finalTitle.toLowerCase().includes(name.toLowerCase()));
+        if (missingInTitle.length > 0) {
+          const namesFormatted = formatNamesItalian(missingInTitle);
           if (finalTitle) {
             finalTitle = `${namesFormatted} - ${finalTitle}`;
           } else {
@@ -699,12 +752,16 @@ export default function App() {
           }
         }
 
-        // Ensure description contains all recognized names
-        const containsNamesDesc = recognizedNames.every(name => finalDescription.toLowerCase().includes(name.toLowerCase()));
-        if (!containsNamesDesc && finalDescription) {
+        // Prepend only missing names to description if any
+        const missingInDesc = recognizedNames.filter(name => !finalDescription.toLowerCase().includes(name.toLowerCase()));
+        if (missingInDesc.length > 0 && finalDescription) {
+          const namesFormatted = formatNamesItalian(missingInDesc);
           finalDescription = `${namesFormatted}: ${finalDescription}`;
         }
       }
+
+      finalTitle = cleanDuplicateNames(finalTitle, recognizedNames);
+      finalDescription = cleanDuplicateNames(finalDescription, recognizedNames);
 
       const updatedMetadata = {
         title: finalTitle,
@@ -1100,8 +1157,10 @@ export default function App() {
         
         if (response.ok) {
           const data = await response.json();
-          updatedMeta.title = data.title || title;
-          updatedMeta.description = data.description || description;
+          const rewrittenTitle = data.title || title;
+          const rewrittenDesc = data.description || description;
+          updatedMeta.title = cleanDuplicateNames(rewrittenTitle, [name, oldName]);
+          updatedMeta.description = cleanDuplicateNames(rewrittenDesc, [name, oldName]);
         }
       } catch (e) {
         console.error("AI text rewrite failed", e);
@@ -1169,8 +1228,10 @@ export default function App() {
           });
           if (response.ok) {
             const data = await response.json();
-            updatedMeta.title = data.title || updatedMeta.title;
-            updatedMeta.description = data.description || updatedMeta.description;
+            const rewrittenTitle = data.title || updatedMeta.title;
+            const rewrittenDesc = data.description || updatedMeta.description;
+            updatedMeta.title = cleanDuplicateNames(rewrittenTitle, [name]);
+            updatedMeta.description = cleanDuplicateNames(rewrittenDesc, [name]);
           }
         } catch (e) {
           console.error("AI text rewrite failed", e);
@@ -1351,8 +1412,10 @@ export default function App() {
         
         if (response.ok) {
           const data = await response.json();
-          updatedMeta.title = data.title || title;
-          updatedMeta.description = data.description || description;
+          const rewrittenTitle = data.title || title;
+          const rewrittenDesc = data.description || description;
+          updatedMeta.title = cleanDuplicateNames(rewrittenTitle, [name]);
+          updatedMeta.description = cleanDuplicateNames(rewrittenDesc, [name]);
         }
       } catch (e) {
         console.error("AI text rewrite failed", e);

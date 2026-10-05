@@ -90,6 +90,56 @@ setInterval(() => {
 }, 3000);
 */
 
+// Helper function to prevent any duplicate person names in titles and descriptions
+function cleanDuplicateNames(text, knownNames = []) {
+  if (!text || typeof text !== "string") return text;
+  let s = text;
+  
+  // 1. Remove duplicate prefix like "Mattia - Mattia ..." or "Mattia: Mattia ..."
+  s = s.replace(/^([A-ZÀ-ÿa-z0-9_-]+)\s*[-:]\s*\1\s*/gi, "$1 ");
+
+  // 2. Collapse immediate repeated words with "e", "ed", ","
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+)(?:\s*(?:,|e|ed)\s+\1)+\b/gi, "$1");
+  } while (s !== prev);
+
+  // 3. For all known names, ensure at most 1 occurrence across the entire text
+  const namesToCheck = new Set(
+    (knownNames && knownNames.length > 0)
+      ? knownNames.map(n => n.trim().replace(/\s*\[[MFB]\]/i, "")).filter(Boolean)
+      : []
+  );
+
+  for (const name of namesToCheck) {
+    if (!name || name.length < 2) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`\\b${escaped}\\b`, "gi");
+    const matches = s.match(regex);
+    if (!matches || matches.length <= 1) continue;
+
+    let seen = 0;
+    const subRegex = new RegExp(`(?:\\s*(?:,|e|ed)\\s+)?\\b${escaped}\\b`, "gi");
+    s = s.replace(subRegex, (match) => {
+      seen++;
+      if (seen === 1) return match;
+      return "";
+    });
+  }
+
+  // 4. Polish any resulting double spaces, dangling commas or conjunctions
+  s = s.replace(/\s*,\s*e\b/gi, " e")
+       .replace(/\be\s+e\b/gi, "e")
+       .replace(/\s{2,}/g, " ")
+       .trim();
+
+  // 5. Polish dangling prepositions or conjunctions at end
+  s = s.replace(/\s+\b(con|e|ed|in|su|tra|fra|di|a|da)\s*$/gi, "").trim();
+
+  return s;
+}
+
 // Cache helper functions
 const activeResizeJobs = new Map();
 
@@ -405,8 +455,14 @@ app.post("/api/analyze-gemini", async (req, res) => {
     }
 
     let peopleInstruction = "";
-    if (detectedPeople && detectedPeople.length > 0) {
-      peopleInstruction = `\n- Le seguenti persone sono state riconosciute nella foto: ${detectedPeople.join(", ")}. Devi ASSOLUTAMENTE utilizzare questi NOMI SPECIFICI nei campi "title" e "description" invece di usare termini generici. IMPORTANTE: Se i nomi contengono tag come [M] (maschio), [F] (femmina), o [B] (bambino), usali SOLO per comprendere il sesso o l'età e coniugare correttamente la grammatica italiana. NON includere MAI i tag [M], [F], [B] nel testo finale generato.`;
+    const uniquePeople = [...new Set((detectedPeople || []).map(p => p.trim()).filter(Boolean))];
+    if (uniquePeople.length > 0) {
+      peopleInstruction = `\n- Persone presenti nella foto: ${uniquePeople.join(", ")}.
+REGOLE FONDAMENTALI ED INDEROGABILI SUI NOMI:
+1. Devi ASSOLUTAMENTE utilizzare questi NOMI SPECIFICI nei campi "title" e "description".
+2. DIVIETO ASSOLUTO DI DUPLICAZIONE DEI NOMI: Ciascun nome di persona deve comparire AL MASSIMO UNA SOLA VOLTA sia nel "title" che nella "description".
+3. È SEVERAMENTE VIETATO scrivere frasi con nomi duplicati come "X e X" o "X e Y e X". Se una persona è già menzionata nella frase, NON citarla una seconda volta.
+4. Se i nomi contengono tag come [M], [F], [B], usali SOLO per comprendere il sesso o l'età e coniugare correttamente la grammatica italiana. NON includere MAI i tag [M], [F], [B] nel testo finale generato.`;
     }
 
     let globalTagsInstruction = "";
@@ -482,6 +538,9 @@ JSON structure example:
       return res.status(500).json({ error: "Gemini returned invalid JSON format" });
     }
 
+    if (parsedJson.title) parsedJson.title = cleanDuplicateNames(parsedJson.title, uniquePeople);
+    if (parsedJson.description) parsedJson.description = cleanDuplicateNames(parsedJson.description, uniquePeople);
+
     res.json({ success: true, analysis: parsedJson });
 
   } catch (error) {
@@ -512,7 +571,12 @@ app.post("/api/rewrite-text", async (req, res) => {
 IMPORTANT: Output ONLY a valid JSON object with the keys "title" and "description". Do not include any markdown blocks.
 Instruction: ${instruction}
 Language: Italian. Keep the rest of the context identical, just fix the grammar after applying the instruction.
-IMPORTANT: Se l'istruzione o i nomi contengono tag come [M] (maschio), [F] (femmina), o [B] (bambino), usali SOLO come contesto per coniugare correttamente la grammatica italiana. NON includere MAI i tag letterali [M], [F], [B] nel testo in output.
+
+REGOLE FONDAMENTALI ED INDEROGABILI SUI NOMI:
+1. DIVIETO ASSOLUTO DI DUPLICAZIONE DEI NOMI: Ciascun nome di persona deve comparire AL MASSIMO UNA SOLA VOLTA nel "title" e AL MASSIMO UNA SOLA VOLTA nella "description".
+2. Se un nome è già presente nel testo, NON aggiungerlo di nuovo. NON scrivere MAI frasi con nomi ripetuti come "X e X" o "Samuele e Mattia e Mattia e Mattia".
+3. Riscrivi la frase in italiano naturale ed elegante, evitando qualsiasi ripetizione inutile dello stesso soggetto o congiunzioni ripetute ("e X e X").
+4. Se l'istruzione o i nomi contengono tag come [M], [F], [B], usali SOLO come contesto per coniugare correttamente la grammatica italiana. NON includere MAI i tag letterali [M], [F], [B] nel testo in output.
 
 Original Title: ${title}
 Original Description: ${description}
@@ -544,6 +608,9 @@ Output format:
     } catch (e) {
       return res.status(500).json({ error: "Gemini returned invalid JSON format" });
     }
+
+    if (parsedJson.title) parsedJson.title = cleanDuplicateNames(parsedJson.title);
+    if (parsedJson.description) parsedJson.description = cleanDuplicateNames(parsedJson.description);
 
     res.json(parsedJson);
 
