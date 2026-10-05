@@ -76,8 +76,8 @@ export async function detectAndMatchFaces(imageInput, matcher) {
     .withFaceLandmarks()
     .withFaceDescriptors();
     
-  // Filter out tiny faces (less than 5% of image height) to avoid tagging crowds
-  const minFaceHeight = img.height * 0.05;
+  // Filter out tiny faces (less than 10% of image height) to avoid tagging crowds
+  const minFaceHeight = img.height * 0.10;
   const filteredDetections = detections.filter(d => d.detection.box.height >= minFaceHeight);
     
   if (!filteredDetections || filteredDetections.length === 0) {
