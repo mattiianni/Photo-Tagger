@@ -1,7 +1,7 @@
 {
-  "name": "photo-archivist-backend",
+  "name": "photo-tag-pro-backend",
   "version": "1.0.0",
-  "description": "Local server for PhotoArchivist AI",
+  "description": "Local server for Photo Tag Pro",
   "main": "server.js",
   "type": "module",
   "scripts": {

@@ -69,6 +69,23 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Heartbeat auto-shutdown mechanism for local app environment
+let lastHeartbeat = Date.now() + 45000; // Allow 45s for startup
+
+app.post("/api/heartbeat", (req, res) => {
+  lastHeartbeat = Date.now();
+  res.json({ success: true });
+});
+
+/*
+setInterval(() => {
+  if (Date.now() - lastHeartbeat > 8000) {
+    console.log("No active clients detected (heartbeat timeout). Shutting down server...");
+    process.exit(0);
+  }
+}, 3000);
+*/
+
 // Cache helper functions
 const activeResizeJobs = new Map();
 
@@ -289,7 +306,7 @@ app.post("/api/image-metadata", async (req, res) => {
     res.json({
       success: true,
       metadata: existingMetadata,
-      analyzed: !!(existingMetadata.title || existingMetadata.description || existingMetadata.keywords.length > 0)
+      analyzed: !!(existingMetadata.keywords && existingMetadata.keywords.length > 0)
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -309,20 +326,20 @@ app.post("/api/write-metadata", async (req, res) => {
     // Write using exiftool
     // Keywords are written to both Keywords (IPTC) and Subject (XMP) for maximum compatibility with macOS Finder/Spotlight
     await exiftool.write(filePath, {
-      Title: title,
-      ObjectName: title,
-      XPTitle: title,
+      Title: title || null,
+      ObjectName: title || null,
+      XPTitle: title || null,
       
-      Description: description,
-      ImageDescription: description,
-      "Caption-Abstract": description,
-      UserComment: description,
-      Comment: description,
-      XPComment: description,
+      Description: description || null,
+      ImageDescription: description || null,
+      "Caption-Abstract": description || null,
+      UserComment: description || null,
+      Comment: description || null,
+      XPComment: description || null,
       
-      Keywords: keywords,
-      Subject: keywords,
-      XPKeywords: Array.isArray(keywords) ? keywords.join("; ") : keywords
+      Keywords: (keywords && keywords.length > 0) ? keywords : null,
+      Subject: (keywords && keywords.length > 0) ? keywords : null,
+      XPKeywords: (Array.isArray(keywords) && keywords.length > 0) ? keywords.join("; ") : null
     }, ["-overwrite_original"]);
 
     // Optionally clean up backup files created by exiftool (filename_original)
@@ -593,7 +610,7 @@ app.post("/api/sync-github", (req, res) => {
 
 // Serve static frontend files in production
 const frontendBuildPath = path.join(__dirname, "public");
-app.use(express.static(frontendBuildPath));
+app.use(express.static(frontendBuildPath, { index: false }));
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) {
     return next();
@@ -610,5 +627,5 @@ app.get("*", (req, res, next) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`PhotoArchivist AI server running on http://localhost:${PORT}`);
+  console.log(`Photo Tag Pro server running on http://localhost:${PORT}`);
 });
