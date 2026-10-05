@@ -93,25 +93,100 @@ setInterval(() => {
 // Helper function to prevent any duplicate person names in titles and descriptions
 function cleanDuplicateNames(text, knownNames = []) {
   if (!text || typeof text !== "string") return text;
-  let s = text;
-  
-  // 1. Remove duplicate prefix like "Mattia - Mattia ..." or "Mattia: Mattia ..."
-  s = s.replace(/^([A-ZÀ-ÿa-z0-9_-]+)\s*[-:]\s*\1\s*/gi, "$1 ");
+  let s = text.trim();
 
-  // 2. Collapse immediate repeated words with "e", "ed", ","
-  let prev;
-  do {
-    prev = s;
-    s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+)(?:\s*(?:,|e|ed)\s+\1)+\b/gi, "$1");
-  } while (s !== prev);
-
-  // 3. For all known names, ensure at most 1 occurrence across the entire text
+  // 1. Gather all names to enforce
   const namesToCheck = new Set(
     (knownNames && knownNames.length > 0)
-      ? knownNames.map(n => n.trim().replace(/\s*\[[MFB]\]/i, "")).filter(Boolean)
+      ? knownNames.map(n => n && n.trim().replace(/\s*\[[MFB]\]/i, "")).filter(Boolean)
       : []
   );
 
+  // Automatically read all names from trained_people.json if available
+  try {
+    const tpPath = path.join(__dirname, "trained_people.json");
+    if (fs.existsSync(tpPath)) {
+      const list = JSON.parse(fs.readFileSync(tpPath, "utf8"));
+      if (Array.isArray(list)) {
+        list.forEach(p => {
+          if (p.name) namesToCheck.add(p.name.trim().replace(/\s*\[[MFB]\]/i, ""));
+        });
+      }
+    }
+  } catch (e) {}
+
+  // Auto-detect ANY word that appears multiple times in the text (case-insensitive)
+  const words = s.match(/\b[A-ZÀ-ÿa-z0-9_-]{2,}\b/g) || [];
+  const wordCounts = new Map();
+  for (const w of words) {
+    const lower = w.toLowerCase();
+    wordCounts.set(lower, (wordCounts.get(lower) || 0) + 1);
+  }
+
+  // Common stop words to exclude from auto-detected names
+  const stopWords = new Set([
+    "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
+    "il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
+    "e", "ed", "o", "od", "che", "del", "della", "dello", "dei", "degli", "delle",
+    "al", "alla", "allo", "ai", "agli", "alle", "nel", "nella", "nello", "nei", "negli", "nelle",
+    "sul", "sulla", "sullo", "sui", "sugli", "sulle", "dal", "dalla", "dallo", "dai", "dagli", "dalle",
+    "non", "si", "ci", "vi", "ne", "mi", "ti", "ci", "vi", "si", "foto", "piazza", "via", "notturna"
+  ]);
+
+  for (const [lower, count] of wordCounts.entries()) {
+    if (count > 1 && !stopWords.has(lower)) {
+      const orig = words.find(w => w.toLowerCase() === lower);
+      if (orig && (orig[0] === orig[0].toUpperCase() || orig.length >= 3)) {
+        namesToCheck.add(orig);
+      }
+    }
+  }
+
+  // 2. Collapse immediate repeated words with commas, "e", "ed", "-", ":" (e.g. "Mattia, Mattia e Mattia" -> "Mattia")
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+)(?:\s*(?:,|e|ed|-|:)\s+\1)+\b/gi, "$1");
+  } while (s !== prev);
+
+  // 3. Strip artificial description prefixes like "Mattia, Samuele: Una foto notturna..." -> "Una foto notturna..."
+  s = s.replace(/^[A-ZÀ-ÿa-z0-9_,\s-]+(?:e|ed)?\s+[A-ZÀ-ÿa-z0-9_-]+\s*[-:]\s*(Una foto|Un |Uno |Due |Foto|Splendida|Suggestiva|In |Vista|Panoramica|Primo piano|Immagine)/i, "$1");
+
+  // 4. Check for prefix like "Prefix Names - Rest of sentence" or "Prefix Names: Rest of sentence"
+  const prefixMatch = s.match(/^([^:-]+?)\s*[-:]\s*(.+)$/i);
+  if (prefixMatch) {
+    const prefix = prefixMatch[1].trim();
+    const rest = prefixMatch[2].trim();
+    
+    const prefixWords = prefix.match(/\b[A-ZÀ-ÿa-z0-9_-]{2,}\b/g) || [];
+    const restLower = rest.toLowerCase();
+    
+    // If every significant word in prefix is already in rest, drop the prefix entirely!
+    const allInRest = prefixWords.length > 0 && prefixWords.every(w => stopWords.has(w.toLowerCase()) || restLower.includes(w.toLowerCase()));
+    if (allInRest) {
+      s = rest;
+    } else {
+      let cleanPrefix = prefix;
+      for (const name of namesToCheck) {
+        if (!name || name.length < 2) continue;
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const restRegex = new RegExp(`\\b${escaped}\\b`, "i");
+        if (restRegex.test(rest)) {
+          cleanPrefix = cleanPrefix.replace(new RegExp(`(?:\\s*(?:,|e|ed)\\s+)?\\b${escaped}\\b`, "gi"), "");
+        }
+      }
+      cleanPrefix = cleanPrefix.replace(/^[\s,;:-]+|[\s,;:-]+$/g, "")
+                               .replace(/\b(e|ed)\s*$/gi, "")
+                               .trim();
+      if (cleanPrefix.length > 0) {
+        s = `${cleanPrefix} - ${rest}`;
+      } else {
+        s = rest;
+      }
+    }
+  }
+
+  // 5. For every name in namesToCheck, enforce strictly AT MOST 1 occurrence in the entire text
   for (const name of namesToCheck) {
     if (!name || name.length < 2) continue;
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -120,7 +195,7 @@ function cleanDuplicateNames(text, knownNames = []) {
     if (!matches || matches.length <= 1) continue;
 
     let seen = 0;
-    const subRegex = new RegExp(`(?:\\s*(?:,|e|ed)\\s+)?\\b${escaped}\\b`, "gi");
+    const subRegex = new RegExp(`(?:\\s*(?:,|e|ed|con)\\s+)?\\b${escaped}\\b`, "gi");
     s = s.replace(subRegex, (match) => {
       seen++;
       if (seen === 1) return match;
@@ -128,14 +203,20 @@ function cleanDuplicateNames(text, knownNames = []) {
     });
   }
 
-  // 4. Polish any resulting double spaces, dangling commas or conjunctions
+  // 6. Polish commas between two names to "e" (e.g. "Samuele, Mattia in piazza" -> "Samuele e Mattia in piazza")
+  s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+),\s+([A-ZÀ-ÿa-z0-9_-]+)\b(?!\s*,)/g, "$1 e $2");
+
+  // 7. Polish punctuation, conjunctions, and whitespace
   s = s.replace(/\s*,\s*e\b/gi, " e")
        .replace(/\be\s+e\b/gi, "e")
+       .replace(/\s*[-:]\s*[-:]\s*/g, " - ")
+       .replace(/^[-:,\s]+/, "")
+       .replace(/[-:,\s]+$/, "")
        .replace(/\s{2,}/g, " ")
        .trim();
 
-  // 5. Polish dangling prepositions or conjunctions at end
-  s = s.replace(/\s+\b(con|e|ed|in|su|tra|fra|di|a|da)\s*$/gi, "").trim();
+  // Polish dangling prepositions at end of sentences
+  s = s.replace(/\s+\b(con|e|ed|in|su|tra|fra|di|a|da)\s*([.,;!?]?)$/gi, "$2").trim();
 
   return s;
 }
@@ -348,8 +429,8 @@ app.post("/api/image-metadata", async (req, res) => {
       const cleanedKeywords = kw.map(k => k.toString().trim()).filter(k => k !== "");
 
       existingMetadata = {
-        title: rawTitle,
-        description: rawDesc,
+        title: cleanDuplicateNames(rawTitle),
+        description: cleanDuplicateNames(rawDesc),
         keywords: cleanedKeywords,
         date: tags.DateTimeOriginal || tags.CreateDate || stats.mtime
       };
@@ -375,21 +456,23 @@ app.post("/api/write-metadata", async (req, res) => {
   }
 
   const { title, description, keywords } = metadata;
+  const cleanTitle = cleanDuplicateNames(title);
+  const cleanDesc = cleanDuplicateNames(description);
 
   try {
     // Write using exiftool
     // Keywords are written to both Keywords (IPTC) and Subject (XMP) for maximum compatibility with macOS Finder/Spotlight
     await exiftool.write(filePath, {
-      Title: title || null,
-      ObjectName: title || null,
-      XPTitle: title || null,
+      Title: cleanTitle || null,
+      ObjectName: cleanTitle || null,
+      XPTitle: cleanTitle || null,
       
-      Description: description || null,
-      ImageDescription: description || null,
-      "Caption-Abstract": description || null,
-      UserComment: description || null,
-      Comment: description || null,
-      XPComment: description || null,
+      Description: cleanDesc || null,
+      ImageDescription: cleanDesc || null,
+      "Caption-Abstract": cleanDesc || null,
+      UserComment: cleanDesc || null,
+      Comment: cleanDesc || null,
+      XPComment: cleanDesc || null,
       
       Keywords: (keywords && keywords.length > 0) ? keywords : null,
       Subject: (keywords && keywords.length > 0) ? keywords : null,

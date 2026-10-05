@@ -18,27 +18,90 @@ const formatNamesItalian = (names) => {
 };
 
 // Helper function to prevent any duplicate person names in titles and descriptions
+// Helper function to prevent any duplicate person names in titles and descriptions
 const cleanDuplicateNames = (text, knownNames = []) => {
   if (!text || typeof text !== "string") return text;
-  let s = text;
+  let s = text.trim();
 
-  // 1. Remove duplicate prefix like "Mattia - Mattia ..." or "Mattia: Mattia ..."
-  s = s.replace(/^([A-ZÀ-ÿa-z0-9_-]+)\s*[-:]\s*\1\s*/gi, "$1 ");
-
-  // 2. Collapse immediate repeated words with "e", "ed", ","
-  let prev;
-  do {
-    prev = s;
-    s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+)(?:\s*(?:,|e|ed)\s+\1)+\b/gi, "$1");
-  } while (s !== prev);
-
-  // 3. For all known names, ensure at most 1 occurrence across the entire text
+  // 1. Gather all names to enforce
   const namesToCheck = new Set(
     (knownNames && knownNames.length > 0)
       ? knownNames.map(n => n && n.trim().replace(/\s*\[[MFB]\]/i, "")).filter(Boolean)
       : []
   );
 
+  // Auto-detect ANY word that appears multiple times in the text (case-insensitive)
+  const words = s.match(/\b[A-ZÀ-ÿa-z0-9_-]{2,}\b/g) || [];
+  const wordCounts = new Map();
+  for (const w of words) {
+    const lower = w.toLowerCase();
+    wordCounts.set(lower, (wordCounts.get(lower) || 0) + 1);
+  }
+
+  // Common stop words to exclude from auto-detected names
+  const stopWords = new Set([
+    "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
+    "il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
+    "e", "ed", "o", "od", "che", "del", "della", "dello", "dei", "degli", "delle",
+    "al", "alla", "allo", "ai", "agli", "alle", "nel", "nella", "nello", "nei", "negli", "nelle",
+    "sul", "sulla", "sullo", "sui", "sugli", "sulle", "dal", "dalla", "dallo", "dai", "dagli", "dalle",
+    "non", "si", "ci", "vi", "ne", "mi", "ti", "ci", "vi", "si", "foto", "piazza", "via", "notturna"
+  ]);
+
+  for (const [lower, count] of wordCounts.entries()) {
+    if (count > 1 && !stopWords.has(lower)) {
+      const orig = words.find(w => w.toLowerCase() === lower);
+      if (orig && (orig[0] === orig[0].toUpperCase() || orig.length >= 3)) {
+        namesToCheck.add(orig);
+      }
+    }
+  }
+
+  // 2. Collapse immediate repeated words with commas, "e", "ed", "-", ":" (e.g. "Mattia, Mattia e Mattia" -> "Mattia")
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+)(?:\s*(?:,|e|ed|-|:)\s+\1)+\b/gi, "$1");
+  } while (s !== prev);
+
+  // 3. Strip artificial description prefixes like "Mattia, Samuele: Una foto notturna..." -> "Una foto notturna..."
+  s = s.replace(/^[A-ZÀ-ÿa-z0-9_,\s-]+(?:e|ed)?\s+[A-ZÀ-ÿa-z0-9_-]+\s*[-:]\s*(Una foto|Un |Uno |Due |Foto|Splendida|Suggestiva|In |Vista|Panoramica|Primo piano|Immagine)/i, "$1");
+
+  // 4. Check for prefix like "Prefix Names - Rest of sentence" or "Prefix Names: Rest of sentence"
+  const prefixMatch = s.match(/^([^:-]+?)\s*[-:]\s*(.+)$/i);
+  if (prefixMatch) {
+    const prefix = prefixMatch[1].trim();
+    const rest = prefixMatch[2].trim();
+    
+    const prefixWords = prefix.match(/\b[A-ZÀ-ÿa-z0-9_-]{2,}\b/g) || [];
+    const restLower = rest.toLowerCase();
+    
+    // If every significant word in prefix is already in rest, drop the prefix entirely!
+    const allInRest = prefixWords.length > 0 && prefixWords.every(w => stopWords.has(w.toLowerCase()) || restLower.includes(w.toLowerCase()));
+    if (allInRest) {
+      s = rest;
+    } else {
+      let cleanPrefix = prefix;
+      for (const name of namesToCheck) {
+        if (!name || name.length < 2) continue;
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const restRegex = new RegExp(`\\b${escaped}\\b`, "i");
+        if (restRegex.test(rest)) {
+          cleanPrefix = cleanPrefix.replace(new RegExp(`(?:\\s*(?:,|e|ed)\\s+)?\\b${escaped}\\b`, "gi"), "");
+        }
+      }
+      cleanPrefix = cleanPrefix.replace(/^[\s,;:-]+|[\s,;:-]+$/g, "")
+                               .replace(/\b(e|ed)\s*$/gi, "")
+                               .trim();
+      if (cleanPrefix.length > 0) {
+        s = `${cleanPrefix} - ${rest}`;
+      } else {
+        s = rest;
+      }
+    }
+  }
+
+  // 5. For every name in namesToCheck, enforce strictly AT MOST 1 occurrence in the entire text
   for (const name of namesToCheck) {
     if (!name || name.length < 2) continue;
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -47,7 +110,7 @@ const cleanDuplicateNames = (text, knownNames = []) => {
     if (!matches || matches.length <= 1) continue;
 
     let seen = 0;
-    const subRegex = new RegExp(`(?:\\s*(?:,|e|ed)\\s+)?\\b${escaped}\\b`, "gi");
+    const subRegex = new RegExp(`(?:\\s*(?:,|e|ed|con)\\s+)?\\b${escaped}\\b`, "gi");
     s = s.replace(subRegex, (match) => {
       seen++;
       if (seen === 1) return match;
@@ -55,14 +118,20 @@ const cleanDuplicateNames = (text, knownNames = []) => {
     });
   }
 
-  // 4. Polish any resulting double spaces, dangling commas or conjunctions
+  // 6. Polish commas between two names to "e" (e.g. "Samuele, Mattia in piazza" -> "Samuele e Mattia in piazza")
+  s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+),\s+([A-ZÀ-ÿa-z0-9_-]+)\b(?!\s*,)/g, "$1 e $2");
+
+  // 7. Polish punctuation, conjunctions, and whitespace
   s = s.replace(/\s*,\s*e\b/gi, " e")
        .replace(/\be\s+e\b/gi, "e")
+       .replace(/\s*[-:]\s*[-:]\s*/g, " - ")
+       .replace(/^[-:,\s]+/, "")
+       .replace(/[-:,\s]+$/, "")
        .replace(/\s{2,}/g, " ")
        .trim();
 
-  // 5. Polish dangling prepositions or conjunctions at end
-  s = s.replace(/\s+\b(con|e|ed|in|su|tra|fra|di|a|da)\s*$/gi, "").trim();
+  // Polish dangling prepositions at end of sentences
+  s = s.replace(/\s+\b(con|e|ed|in|su|tra|fra|di|a|da)\s*([.,;!?]?)$/gi, "$2").trim();
 
   return s;
 };
@@ -457,7 +526,30 @@ export default function App() {
   }, []);
 
   const ensureMetadataLoaded = async (img) => {
-    if (!img || img.metadata !== null) return img;
+    if (!img) return img;
+    
+    // If metadata already loaded, verify title and description are clean of duplicates
+    if (img.metadata !== null) {
+      const allNames = (people || []).map(p => p.name);
+      const cleanT = cleanDuplicateNames(img.metadata.title, allNames);
+      const cleanD = cleanDuplicateNames(img.metadata.description, allNames);
+      if (cleanT !== img.metadata.title || cleanD !== img.metadata.description) {
+        const cleaned = {
+          ...img,
+          metadata: {
+            ...img.metadata,
+            title: cleanT,
+            description: cleanD
+          }
+        };
+        setImages(prev => prev.map(i => i.path === img.path ? cleaned : i));
+        if (selectedImage && selectedImage.path === img.path) {
+          setSelectedImage(cleaned);
+        }
+        return cleaned;
+      }
+      return img;
+    }
     
     try {
       const response = await fetch(`${API_BASE}/api/image-metadata`, {
@@ -467,7 +559,13 @@ export default function App() {
       });
       const data = await response.json();
       if (data.success) {
-        const updated = { ...img, metadata: data.metadata, analyzed: data.analyzed };
+        const allNames = (people || []).map(p => p.name);
+        const meta = {
+          ...data.metadata,
+          title: cleanDuplicateNames(data.metadata?.title || "", allNames),
+          description: cleanDuplicateNames(data.metadata?.description || "", allNames)
+        };
+        const updated = { ...img, metadata: meta, analyzed: data.analyzed };
         setImages(prev => prev.map(i => i.path === img.path ? updated : i));
         if (selectedImage && selectedImage.path === img.path) {
           setSelectedImage(updated);
@@ -635,6 +733,16 @@ export default function App() {
         await new Promise(resolve => setTimeout(resolve, 4000));
       }
 
+      // Collect recognized people from detected faces, PLUS any trained people already in the photo keywords
+      const faceNames = detectedFaces
+        .filter(f => f.name && f.name.toLowerCase() !== 'sconosciuto' && f.name.toLowerCase() !== 'unknown')
+        .map(f => f.name.trim());
+      
+      const existingKeywordPeople = (img.metadata?.keywords || [])
+        .filter(k => (people || []).some(p => p.name.toLowerCase() === k.toLowerCase()));
+      
+      const peopleForGemini = [...new Set([...faceNames, ...existingKeywordPeople].filter(Boolean))];
+
       while (retries > 0) {
         try {
           const response = await fetch(`${API_BASE}/api/analyze-gemini`, {
@@ -647,7 +755,7 @@ export default function App() {
               filePath: base64Image ? undefined : img.path,
               base64Image: base64Image ? base64Image.split(',')[1] : undefined,
               landmarksDb,
-              detectedPeople: [...new Set(detectedFaces.filter(f => f.name && f.name.toLowerCase() !== 'sconosciuto' && f.name.toLowerCase() !== 'unknown').map(f => f.name.trim()).filter(Boolean))],
+              detectedPeople: peopleForGemini,
               globalTags
             })
           });
@@ -737,31 +845,23 @@ export default function App() {
           .filter(Boolean)
       )];
 
-      let finalTitle = analysis.title || img.metadata?.title || img.name;
-      let finalDescription = analysis.description || img.metadata?.description || '';
+      const allKnownPersonNames = [...new Set([...recognizedNames, ...people.map(p => p.name)])];
 
+      // Use fresh analysis from Gemini
+      let finalTitle = analysis.title || img.name;
+      let finalDescription = analysis.description || '';
+
+      // If recognized faces were found but NONE of them appear anywhere in the title, weave them once
       if (recognizedNames.length > 0) {
-        // Prepend only missing names to title if any
-        const missingInTitle = recognizedNames.filter(name => !finalTitle.toLowerCase().includes(name.toLowerCase()));
-        if (missingInTitle.length > 0) {
-          const namesFormatted = formatNamesItalian(missingInTitle);
-          if (finalTitle) {
-            finalTitle = `${namesFormatted} - ${finalTitle}`;
-          } else {
-            finalTitle = namesFormatted;
-          }
-        }
-
-        // Prepend only missing names to description if any
-        const missingInDesc = recognizedNames.filter(name => !finalDescription.toLowerCase().includes(name.toLowerCase()));
-        if (missingInDesc.length > 0 && finalDescription) {
-          const namesFormatted = formatNamesItalian(missingInDesc);
-          finalDescription = `${namesFormatted}: ${finalDescription}`;
+        const hasAnyPersonInTitle = recognizedNames.some(name => finalTitle.toLowerCase().includes(name.toLowerCase()));
+        if (!hasAnyPersonInTitle) {
+          const namesFormatted = formatNamesItalian(recognizedNames);
+          finalTitle = `${namesFormatted} - ${finalTitle}`;
         }
       }
 
-      finalTitle = cleanDuplicateNames(finalTitle, recognizedNames);
-      finalDescription = cleanDuplicateNames(finalDescription, recognizedNames);
+      finalTitle = cleanDuplicateNames(finalTitle, allKnownPersonNames);
+      finalDescription = cleanDuplicateNames(finalDescription, allKnownPersonNames);
 
       const updatedMetadata = {
         title: finalTitle,
