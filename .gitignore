@@ -21,3 +21,7 @@ dist/
 frontend/dist/
 frontend/public/models/
 *.log
+.cache/
+backend/test_*.js
+backend/test_image.png
+Icon?

@@ -280,20 +280,28 @@ app.get("/api/image", async (req, res) => {
     const cachePath = getCachePath(filePath, cacheSizeName);
 
     if (fs.existsSync(cachePath)) {
-      return res.sendFile(cachePath);
+      return res.sendFile(cachePath, { dotfiles: "allow" }, (err) => {
+        if (err && !res.headersSent) res.status(err.status || 500).end();
+      });
     }
 
     try {
       await generateResizedImage(filePath, cachePath, maxDim);
-      return res.sendFile(cachePath);
+      return res.sendFile(cachePath, { dotfiles: "allow" }, (err) => {
+        if (err && !res.headersSent) res.status(err.status || 500).end();
+      });
     } catch (err) {
       console.error(`Error generating ${cacheSizeName} for ${filePath}:`, err);
       // Fallback to sending the original file on resize error
-      return res.sendFile(filePath);
+      return res.sendFile(filePath, { dotfiles: "allow" }, (err) => {
+        if (err && !res.headersSent) res.status(err.status || 500).end();
+      });
     }
   }
 
-  res.sendFile(filePath);
+  res.sendFile(filePath, { dotfiles: "allow" }, (err) => {
+    if (err && !res.headersSent) res.status(err.status || 500).end();
+  });
 });
 
 
@@ -744,21 +752,42 @@ app.post("/api/trained-people", (req, res) => {
 
 // Endpoint to trigger a Git commit and push for the trained_people.json
 app.post("/api/sync-github", (req, res) => {
-  // We execute git from the root folder of the project
   const repoRoot = path.join(__dirname, "..");
-  const cmd = `cd "${repoRoot}" && git add backend/trained_people.json && git commit -m "Auto-sync trained faces from Photo Tag Pro" && git push`;
-
-  exec(cmd, (error, stdout, stderr) => {
-    if (error) {
-      // If there are no changes to commit, git commit returns an error (exit code 1).
-      // We should check if it's just "nothing to commit"
-      if (stdout.includes("nothing to commit") || stderr.includes("nothing to commit")) {
-        return res.json({ success: true, message: "Tutto già sincronizzato! Nessuna modifica ai volti." });
-      }
-      console.error(`Error syncing to GitHub: ${error.message}`);
-      return res.status(500).json({ error: "Errore durante la sincronizzazione con GitHub", details: stderr || error.message });
+  
+  // 1. Check if trained_people.json has uncommitted local changes
+  exec("git status --porcelain backend/trained_people.json", { cwd: repoRoot }, (statusErr, statusOut) => {
+    const hasLocalChanges = !statusErr && statusOut.trim().length > 0;
+    
+    if (hasLocalChanges) {
+      const commitCmd = `git add backend/trained_people.json && git commit -m "Auto-sync trained faces from Photo Tag Pro" && git push`;
+      exec(commitCmd, { cwd: repoRoot }, (commitErr, stdout, stderr) => {
+        if (commitErr) {
+          const allOut = `${stdout} ${stderr}`;
+          if (allOut.includes("nothing to commit") || allOut.includes("no changes added")) {
+            return res.json({ success: true, message: "I volti sono già perfettamente sincronizzati con GitHub!" });
+          }
+          console.error("Error syncing to GitHub:", commitErr.message, stderr);
+          return res.status(500).json({ error: "Errore durante la sincronizzazione con GitHub", details: stderr || commitErr.message });
+        }
+        return res.json({ success: true, message: "Volti sincronizzati con successo su GitHub!" });
+      });
+    } else {
+      // 2. No uncommitted local changes. Check if there are any unpushed commits
+      exec("git log origin/main..HEAD --oneline", { cwd: repoRoot }, (logErr, logOut) => {
+        const hasUnpushed = !logErr && logOut.trim().length > 0;
+        if (hasUnpushed) {
+          exec("git push", { cwd: repoRoot }, (pushErr, pOut, pErr) => {
+            if (pushErr) {
+              console.error("Error pushing to GitHub:", pushErr.message, pErr);
+              return res.status(500).json({ error: "Errore durante il push su GitHub", details: pErr || pushErr.message });
+            }
+            return res.json({ success: true, message: "Modifiche inviate a GitHub con successo!" });
+          });
+        } else {
+          return res.json({ success: true, message: "I volti sono già perfettamente sincronizzati con GitHub!" });
+        }
+      });
     }
-    res.json({ success: true, message: "Volti sincronizzati con successo su GitHub!" });
   });
 });
 
