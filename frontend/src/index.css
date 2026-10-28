@@ -28,7 +28,7 @@
   --input-border: rgba(0, 0, 0, 0.1);
   --input-focus-ring: rgba(0, 122, 255, 0.3);
   
-  --sidebar-width: 260px;
+  --sidebar-width: 320px;
   --inspector-width: 340px;
 }
 
@@ -105,12 +105,49 @@ body {
 /* Sidebar Styling */
 .sidebar {
   width: var(--sidebar-width);
-  height: 100%;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 24px 12px; /* standard HIG padding */
+  padding: 20px 12px 36px 12px;
   flex-shrink: 0;
   user-select: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+/* Sidebar resizer handle */
+.sidebar-resizer {
+  width: 6px;
+  cursor: col-resize;
+  background-color: transparent;
+  transition: background-color 0.2s;
+  z-index: 20;
+  flex-shrink: 0;
+  margin-left: -3px;
+  margin-right: -3px;
+}
+
+.sidebar-resizer:hover, .sidebar-resizer:active {
+  background-color: var(--accent-color);
+  opacity: 0.5;
+}
+
+/* Apple HIG slim scrollbar for sidebar */
+.sidebar::-webkit-scrollbar {
+  width: 5px;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+}
+@media (prefers-color-scheme: dark) {
+  .sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+  }
 }
 
 .sidebar-header {
@@ -309,14 +346,14 @@ body {
 }
 
 .photo-card-info {
-  padding: 12px;
+  padding: clamp(6px, 1.2vw, 12px);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: clamp(3px, 0.8vw, 6px);
 }
 
 .photo-name {
-  font-size: 13px;
+  font-size: clamp(11px, 1vw, 13px);
   font-weight: 500;
   letter-spacing: -0.2px;
   white-space: nowrap;
@@ -550,13 +587,26 @@ body {
   width: 100%;
   background-color: rgba(120, 120, 128, 0.16);
   position: relative;
+  overflow: hidden;
 }
 
 .batch-progress-fill {
   height: 100%;
-  background-color: var(--accent-color);
+  background: linear-gradient(90deg, #007aff, #5856d6, #007aff);
+  background-size: 200% 100%;
+  animation: progressShimmer 2s infinite linear;
   width: 0%;
-  transition: width 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+  transition: width 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes progressShimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 /* Spinner and Overlay for Scan Loading State */
@@ -640,4 +690,152 @@ body {
   0% { transform: scale(0.95); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }
 }
+
+/* Toolbar Power Icon Button */
+.btn-power-toolbar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.btn-power-toolbar:hover {
+  background: rgba(255, 59, 48, 0.12);
+  border-color: rgba(255, 59, 48, 0.4);
+  color: #ff3b30;
+  transform: scale(1.05);
+}
+
+.btn-power-toolbar:active {
+  transform: scale(0.96);
+}
+
+/* Event Person Item & Gender Toggle */
+.event-person-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  transition: background 0.15s ease;
+}
+
+.event-person-item:hover {
+  border-color: var(--input-border);
+}
+
+.gender-toggle {
+  display: inline-flex;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--input-border);
+  background: var(--bg-color);
+}
+
+.gender-toggle-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gender-toggle-btn.active-m {
+  background: var(--accent-color);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.gender-toggle-btn.active-f {
+  background: #ff2d55;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* AI Engine Cards & Status Indicators */
+.ai-engine-card {
+  background: var(--card-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ai-engine-card:hover {
+  border-color: var(--input-border);
+}
+
+.ai-engine-card.active {
+  border-color: var(--accent-color);
+  background: var(--accent-light);
+  box-shadow: 0 0 0 1px var(--accent-color);
+}
+
+.ai-engine-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-engine-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ai-engine-body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.status-dot-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.status-dot.green {
+  background-color: #34c759;
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.6);
+}
+
+.status-dot.red {
+  background-color: #ff3b30;
+  box-shadow: 0 0 6px rgba(255, 59, 48, 0.5);
+}
+
+
 

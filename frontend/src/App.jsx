@@ -23,39 +23,12 @@ const cleanDuplicateNames = (text, knownNames = []) => {
   if (!text || typeof text !== "string") return text;
   let s = text.trim();
 
-  // 1. Gather all names to enforce
+  // 1. Gather ONLY real confirmed person names (NEVER guess from repeated words, which deletes common words like 'bambino')
   const namesToCheck = new Set(
     (knownNames && knownNames.length > 0)
       ? knownNames.map(n => n && n.trim().replace(/\s*\[[MFB]\]/i, "")).filter(Boolean)
       : []
   );
-
-  // Auto-detect ANY word that appears multiple times in the text (case-insensitive)
-  const words = s.match(/\b[A-ZÀ-ÿa-z0-9_-]{2,}\b/g) || [];
-  const wordCounts = new Map();
-  for (const w of words) {
-    const lower = w.toLowerCase();
-    wordCounts.set(lower, (wordCounts.get(lower) || 0) + 1);
-  }
-
-  // Common stop words to exclude from auto-detected names
-  const stopWords = new Set([
-    "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
-    "il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
-    "e", "ed", "o", "od", "che", "del", "della", "dello", "dei", "degli", "delle",
-    "al", "alla", "allo", "ai", "agli", "alle", "nel", "nella", "nello", "nei", "negli", "nelle",
-    "sul", "sulla", "sullo", "sui", "sugli", "sulle", "dal", "dalla", "dallo", "dai", "dagli", "dalle",
-    "non", "si", "ci", "vi", "ne", "mi", "ti", "ci", "vi", "si", "foto", "piazza", "via", "notturna"
-  ]);
-
-  for (const [lower, count] of wordCounts.entries()) {
-    if (count > 1 && !stopWords.has(lower)) {
-      const orig = words.find(w => w.toLowerCase() === lower);
-      if (orig && (orig[0] === orig[0].toUpperCase() || orig.length >= 3)) {
-        namesToCheck.add(orig);
-      }
-    }
-  }
 
   // 2. Collapse immediate repeated words with commas, "e", "ed", "-", ":" (e.g. "Mattia, Mattia e Mattia" -> "Mattia")
   let prev;
@@ -94,7 +67,13 @@ const cleanDuplicateNames = (text, knownNames = []) => {
                                .replace(/\b(e|ed)\s*$/gi, "")
                                .trim();
       if (cleanPrefix.length > 0) {
-        s = `${cleanPrefix} - ${rest}`;
+        // Strip generic subject from rest if present (e.g. "Giovane gamer" -> "gamer")
+        const genericRest = rest.replace(/^(?:Un |Una |Il |La )?(?:giovane|ragazzo|ragazza|bambino|bambina|persona|uomo|donna)\s+/i, "");
+        if (genericRest !== rest) {
+          s = `${cleanPrefix} ${genericRest}`;
+        } else {
+          s = `${cleanPrefix} ${rest.charAt(0).toLowerCase() + rest.slice(1)}`;
+        }
       } else {
         s = rest;
       }
@@ -133,7 +112,121 @@ const cleanDuplicateNames = (text, knownNames = []) => {
   // Polish dangling prepositions at end of sentences
   s = s.replace(/\s+\b(con|e|ed|in|su|tra|fra|di|a|da)\s*([.,;!?]?)$/gi, "$2").trim();
 
+  // 8. Fix common Italian grammar artifacts produced by AI
+  // Replace orphan articles before verbs (e.g. "Il indossa..." -> "Indossa...", "Il è..." -> "È...")
+  s = s.replace(/\b([I|i]l|[L|l]a|[L|l]o|[I|i]|[G|g]li|[L|l]e)\s+(indossa|porta|guarda|è|ha|siede|sta|sembra|gioca|appare|trova)\b/g, (match, art, verb) => {
+    return art[0] === art[0].toUpperCase() ? verb.charAt(0).toUpperCase() + verb.slice(1) : verb;
+  });
+  // Replace orphan "Il in..." -> "In..."
+  s = s.replace(/\b([I|i]l|[L|l]a|[L|l]o)\s+(in|su|a|con|durante)\b/g, (match, art, prep) => {
+    return art[0] === art[0].toUpperCase() ? prep.charAt(0).toUpperCase() + prep.slice(1) : prep;
+  });
+  // Replace "Nome e un bambino" -> "Nome è un bambino"
+  s = s.replace(/\b([A-ZÀ-ÿa-z0-9_-]+)\s+e\s+(un|una|uno)\b/g, "$1 è $2");
+  // Replace English calque "attentivo" -> "attento"
+  s = s.replace(/\battentiv([oaie])\b/gi, "attent$1");
+  // Clean chains of " e con " -> ", con "
+  s = s.replace(/\s+e\s+con\s+/gi, ", con ");
+
   return s;
+};
+
+export const applyItalianGenderConcordance = (text, oldName, newName, oldGender, newGender) => {
+  if (!text) return text;
+  let res = text;
+
+  // 1. Sostituzione del nome con boundary
+  if (oldName && oldName.toLowerCase() !== 'sconosciuto' && oldName.toLowerCase() !== 'unknown') {
+    const escOld = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    res = res.replace(new RegExp(`\\b${escOld}\\b`, 'gi'), newName);
+  }
+
+  // 2. Concordanza grammaticale di genere (Femminile -> Maschile)
+  if (oldGender === 'F' && newGender === 'M') {
+    const fToM = [
+      [/\b(è|era|sembra|appare)\s+seduta\b/gi, '$1 seduto'],
+      [/\bseduta\b/gi, 'seduto'],
+      [/\bsdraiata\b/gi, 'sdraiato'],
+      [/\bdistesa\b/gi, 'disteso'],
+      [/\bcoricata\b/gi, 'coricato'],
+      [/\bvestita\b/gi, 'vestito'],
+      [/\bimpegnata\b/gi, 'impegnato'],
+      [/\bconcentrata\b/gi, 'concentrato'],
+      [/\battenta\b/gi, 'attento'],
+      [/\bferma\b/gi, 'fermo'],
+      [/\bgirata\b/gi, 'girato'],
+      [/\bvoltata\b/gi, 'voltato'],
+      [/\bsola\b/gi, 'solo'],
+      [/\britratta\b/gi, 'ritratto'],
+      [/\bfotografata\b/gi, 'fotografato'],
+      [/\bimmortalata\b/gi, 'immortalato'],
+      [/\bripresa\b/gi, 'ripreso'],
+      [/\binquadrata\b/gi, 'inquadrato'],
+      [/\bvista\b/gi, 'visto'],
+      [/\baccompagnata\b/gi, 'accompagnato'],
+      [/\bcircondata\b/gi, 'circondato'],
+      [/\bpronta\b/gi, 'pronto'],
+      [/\bcuriosa\b/gi, 'curioso'],
+      [/\bdivertita\b/gi, 'divertito'],
+      [/\bappassionata\b/gi, 'appassionato'],
+      [/\bragazza\b/gi, 'ragazzo'],
+      [/\bdonna\b/gi, 'uomo'],
+      [/\bbambina\b/gi, 'bambino'],
+      [/\buna\s+giovane\b/gi, 'un giovane'],
+      [/\buna\s+bambina\b/gi, 'un bambino'],
+      [/\buna\s+ragazza\b/gi, 'un ragazzo'],
+      [/\bdella\s+ragazza\b/gi, 'del ragazzo'],
+      [/\bdella\s+bambina\b/gi, 'del bambino'],
+      [/\bdalla\s+ragazza\b/gi, 'dal ragazzo'],
+      [/\balla\s+ragazza\b/gi, 'al ragazzo']
+    ];
+    for (const [regex, rep] of fToM) {
+      res = res.replace(regex, rep);
+    }
+  } else if (oldGender === 'M' && newGender === 'F') {
+    const mToF = [
+      [/\b(è|era|sembra|appare)\s+seduto\b/gi, '$1 seduta'],
+      [/\bseduto\b/gi, 'seduta'],
+      [/\bsdraiato\b/gi, 'sdraiata'],
+      [/\bdisteso\b/gi, 'distesa'],
+      [/\bcoricato\b/gi, 'coricata'],
+      [/\bvestito\b/gi, 'vestita'],
+      [/\bimpegnato\b/gi, 'impegnata'],
+      [/\bconcentrato\b/gi, 'concentrata'],
+      [/\battento\b/gi, 'attenta'],
+      [/\bfermo\b/gi, 'ferma'],
+      [/\bgirato\b/gi, 'girata'],
+      [/\bvoltato\b/gi, 'voltata'],
+      [/\bsolo\b/gi, 'sola'],
+      [/\britratto\b/gi, 'ritratta'],
+      [/\bfotografato\b/gi, 'fotografata'],
+      [/\bimmortalato\b/gi, 'immortalata'],
+      [/\bripreso\b/gi, 'ripresa'],
+      [/\binquadrato\b/gi, 'inquadrata'],
+      [/\bvisto\b/gi, 'vista'],
+      [/\baccompagnato\b/gi, 'accompagnata'],
+      [/\bcircondato\b/gi, 'circondata'],
+      [/\bpronto\b/gi, 'pronta'],
+      [/\bcurioso\b/gi, 'curiosa'],
+      [/\bdivertito\b/gi, 'divertita'],
+      [/\bappassionato\b/gi, 'appassionata'],
+      [/\bragazzo\b/gi, 'ragazza'],
+      [/\buomo\b/gi, 'donna'],
+      [/\bbambino\b/gi, 'bambina'],
+      [/\bun\s+giovane\b/gi, 'una giovane'],
+      [/\bun\s+bambino\b/gi, 'una bambina'],
+      [/\bun\s+ragazzo\b/gi, 'una ragazza'],
+      [/\bdel\s+ragazzo\b/gi, 'della ragazza'],
+      [/\bdel\s+bambino\b/gi, 'della bambina'],
+      [/\bdal\s+ragazzo\b/gi, 'dalla ragazza'],
+      [/\bal\s+ragazzo\b/gi, 'alla ragazza']
+    ];
+    for (const [regex, rep] of mToF) {
+      res = res.replace(regex, rep);
+    }
+  }
+
+  return res;
 };
 
 
@@ -303,15 +396,189 @@ export default function App() {
   const [newGlobalTag, setNewGlobalTag] = useState('');
   useEffect(() => { localStorage.setItem('global_tags', JSON.stringify(globalTags)); }, [globalTags]);
 
+  const [customInstruction, setCustomInstruction] = useState(() => localStorage.getItem('custom_ai_instruction') || '');
+  useEffect(() => { localStorage.setItem('custom_ai_instruction', customInstruction); }, [customInstruction]);
+
+  const parseStoredEventPersons = (stored) => {
+    if (!Array.isArray(stored)) return [];
+    return stored.map(item => {
+      if (typeof item === 'object' && item !== null && item.name) {
+        return {
+          name: item.name.replace(/\s*\[[MFB]\]/i, '').trim(),
+          gender: item.gender === 'F' ? 'F' : 'M'
+        };
+      }
+      if (typeof item === 'string') {
+        const isF = /\[F\]/i.test(item);
+        const clean = item.replace(/\s*\[[MFB]\]/i, '').trim();
+        return { name: clean, gender: isF ? 'F' : 'M' };
+      }
+      return null;
+    }).filter(Boolean);
+  };
+
   const [eventPersons, setEventPersons] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('event_persons')) || []; }
-    catch(e) { return []; }
+    try { 
+      const raw = JSON.parse(localStorage.getItem('event_persons')) || [];
+      return parseStoredEventPersons(raw);
+    } catch(e) { return []; }
   });
   const [newEventPerson, setNewEventPerson] = useState('');
   useEffect(() => { localStorage.setItem('event_persons', JSON.stringify(eventPersons)); }, [eventPersons]);
 
-  // Modals & Settings
+  // AI Engines Settings
+  const [aiEngine, setAiEngine] = useState(() => localStorage.getItem('ai_engine') || 'gemini');
+  useEffect(() => { localStorage.setItem('ai_engine', aiEngine); }, [aiEngine]);
+
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  useEffect(() => { localStorage.setItem('gemini_api_key', apiKey); }, [apiKey]);
+
+  const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem('ollama_url') || 'http://localhost:11434');
+  useEffect(() => { localStorage.setItem('ollama_url', ollamaUrl); }, [ollamaUrl]);
+
+  const [selectedOllamaModels, setSelectedOllamaModels] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('selected_ollama_models'));
+      // Filter out moondream if saved, since it hallucinates fixed text
+      if (Array.isArray(saved) && saved.length > 0) {
+        const safe = saved.filter(m => !m.includes('moondream'));
+        if (safe.length > 0) return safe;
+      }
+    } catch(e) {}
+    return ['llava:latest'];
+  });
+  useEffect(() => {
+    localStorage.setItem('selected_ollama_models', JSON.stringify(selectedOllamaModels));
+  }, [selectedOllamaModels]);
+
+  // Thumbnail zoom slider state (110px to 340px)
+  const [thumbnailSize, setThumbnailSize] = useState(() => {
+    const saved = Number(localStorage.getItem('thumbnail_size'));
+    return saved >= 100 && saved <= 360 ? saved : 180;
+  });
+  useEffect(() => {
+    localStorage.setItem('thumbnail_size', thumbnailSize.toString());
+  }, [thumbnailSize]);
+
+  const [ollamaModels, setOllamaModels] = useState([]);
+  const [ollamaConnected, setOllamaConnected] = useState(false);
+  const [ollamaChecking, setOllamaChecking] = useState(false);
+  const [isImportingModel, setIsImportingModel] = useState(false);
+
+  const [customCloudProvider, setCustomCloudProvider] = useState(() => localStorage.getItem('custom_cloud_provider') || 'openai');
+  useEffect(() => { localStorage.setItem('custom_cloud_provider', customCloudProvider); }, [customCloudProvider]);
+
+  const [customCloudKey, setCustomCloudKey] = useState(() => localStorage.getItem('custom_cloud_key') || '');
+  useEffect(() => { localStorage.setItem('custom_cloud_key', customCloudKey); }, [customCloudKey]);
+
+  const [customCloudModel, setCustomCloudModel] = useState(() => {
+    const saved = localStorage.getItem('custom_cloud_model') || '';
+    if (!saved || saved.includes('meta-llama/llama-3.2-11b-vision-instruct:free') || saved.includes('google/gemma-4')) {
+      return 'nvidia/nemotron-3.5-super-vl:free';
+    }
+    return saved;
+  });
+  useEffect(() => { localStorage.setItem('custom_cloud_model', customCloudModel); }, [customCloudModel]);
+
+  const [openrouterModels, setOpenrouterModels] = useState([
+    { id: "nvidia/nemotron-3.5-super-vl:free", name: "NVIDIA: Nemotron 3.5 Super VL (Consigliato)" },
+    { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", name: "NVIDIA: Nemotron 3 Nano Omni" },
+    { id: "dots-studio/dots-3-note-preview:free", name: "Dots Studio: Dots3-Note Preview" }
+  ]);
+
+  useEffect(() => {
+    const loadOpenRouterModels = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/openrouter-free-models`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.models) && data.models.length > 0) {
+          setOpenrouterModels(data.models);
+        }
+      } catch (err) {
+        console.warn("Impossibile caricare modelli OpenRouter online:", err);
+      }
+    };
+    loadOpenRouterModels();
+  }, []);
+
+  const [expandedEngine, setExpandedEngine] = useState(() => localStorage.getItem('ai_engine') || 'gemini');
+
+  const [customCloudConnected, setCustomCloudConnected] = useState(false);
+
+  const geminiConnected = apiKey.trim().length >= 30;
+
+  const checkProvidersStatus = async () => {
+    setOllamaChecking(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/check-providers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          ollamaUrl,
+          customCloudKey,
+          customCloudProvider
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOllamaConnected(data.ollama.connected);
+        if (data.ollama.models && data.ollama.models.length > 0) {
+          // Exclude moondream — too small (1.8B), hallucinates badly
+          const usableModels = data.ollama.models.filter(m => !m.includes('moondream'));
+          setOllamaModels(usableModels.length > 0 ? usableModels : data.ollama.models);
+          setSelectedOllamaModels(prev => {
+            const safeModels = usableModels.length > 0 ? usableModels : data.ollama.models;
+            const valid = prev.filter(m => safeModels.includes(m) && !m.includes('moondream'));
+            return valid.length > 0 ? valid : (safeModels.includes('llava:latest') ? ['llava:latest'] : [safeModels[0]]);
+          });
+        }
+        setCustomCloudConnected(data.customCloud?.connected || false);
+      }
+    } catch (e) {
+      console.warn("Could not check providers status:", e);
+    } finally {
+      setOllamaChecking(false);
+    }
+  };
+
+  const handleImportLocalModel = async () => {
+    try {
+      setIsImportingModel(true);
+      const resPick = await fetch(`${API_BASE}/api/pick-folder`);
+      const dataPick = await resPick.json();
+      if (!dataPick.success || !dataPick.path) {
+        setIsImportingModel(false);
+        return;
+      }
+      showToast(`Caricamento modello dalla cartella ${dataPick.path}...`, 'info');
+      const resImport = await fetch(`${API_BASE}/api/import-local-model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderPath: dataPick.path })
+      });
+      const dataImport = await resImport.json();
+      if (dataImport.success) {
+        showToast(dataImport.message || `Modello ${dataImport.modelName} caricato con successo!`, 'success');
+        await checkProvidersStatus();
+      } else {
+        showToast(dataImport.error || 'Errore durante il caricamento del modello.', 'error');
+      }
+    } catch (err) {
+      showToast(`Errore: ${err.message}`, 'error');
+    } finally {
+      setIsImportingModel(false);
+    }
+  };
+
+  useEffect(() => {
+    checkProvidersStatus();
+    const interval = setInterval(checkProvidersStatus, 10000);
+    return () => clearInterval(interval);
+  }, [apiKey, ollamaUrl, customCloudKey, customCloudProvider]);
+
+  // Modals & Settings
+  const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [faceMatcher, setFaceMatcher] = useState(null);
   const [landmarksDb, setLandmarksDb] = useState({});
 
@@ -341,18 +608,32 @@ export default function App() {
   });
   const isResizing = useRef(false);
 
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('sidebar_width');
+    return saved ? parseInt(saved, 10) : 320;
+  });
+  const isResizingSidebar = useRef(false);
+
   useEffect(() => {
     const handleMouseMove = (e) => {
-      if (!isResizing.current) return;
-      const newWidth = window.innerWidth - e.clientX;
-      if (newWidth > 250 && newWidth < 800) {
-        setInspectorWidth(newWidth);
-        localStorage.setItem('inspector_width', newWidth);
+      if (isResizing.current) {
+        const newWidth = window.innerWidth - e.clientX;
+        if (newWidth > 250 && newWidth < 800) {
+          setInspectorWidth(newWidth);
+          localStorage.setItem('inspector_width', newWidth);
+        }
+      } else if (isResizingSidebar.current) {
+        const newWidth = e.clientX;
+        if (newWidth > 220 && newWidth < 650) {
+          setSidebarWidth(newWidth);
+          localStorage.setItem('sidebar_width', newWidth);
+        }
       }
     };
     const handleMouseUp = () => {
-      if (isResizing.current) {
+      if (isResizing.current || isResizingSidebar.current) {
         isResizing.current = false;
+        isResizingSidebar.current = false;
         document.body.style.cursor = 'default';
       }
     };
@@ -452,7 +733,7 @@ export default function App() {
     rebuildMatcher(newList);
     
     // Filter out temporary event persons before saving permanently
-    const persistentPeople = newList.filter(p => !eventPersons.includes(p.name));
+    const persistentPeople = newList.filter(p => !eventPersons.some(ep => ep.name === p.name));
     localStorage.setItem('trained_people', JSON.stringify(persistentPeople));
     await savePeopleToBackend(persistentPeople);
   };
@@ -704,33 +985,51 @@ export default function App() {
   };
 
   // Run AI analysis on a single image
-  const analyzeImage = async (img) => {
-
+  const analyzeImage = async (img, onStatusUpdate = null) => {
     try {
-      // 1. Run local face-api.js detection in browser
+      if (onStatusUpdate) onStatusUpdate("Rilevamento volti con face-api...");
+      // 1. Run local face-api.js detection in browser with a 6-second timeout race
       let detectedFaces = [];
       try {
         const imageSrc = `${API_BASE}/api/image?path=${encodeURIComponent(img.path)}&size=preview`;
-        detectedFaces = await detectAndMatchFaces(imageSrc, faceMatcher);
+        detectedFaces = await Promise.race([
+          detectAndMatchFaces(imageSrc, faceMatcher),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout face-api")), 6000))
+        ]);
       } catch (faceErr) {
-        console.error("Face-api.js error:", faceErr);
+        console.warn("Face-api.js avviso non critico:", faceErr.message);
       }
 
-      // Downsample the image to send to backend to speed up upload and analysis
+      if (onStatusUpdate) onStatusUpdate("Preparazione anteprima ottimizzata...");
+      // Downsample the image to send to backend with a 5-second timeout race
       let base64Image = null;
       try {
-        base64Image = await downsampleImage(img.path);
+        base64Image = await Promise.race([
+          downsampleImage(img.path),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout downsample")), 5000))
+        ]);
       } catch (downsampleErr) {
-        console.error("Downsample error:", downsampleErr);
+        console.warn("Downsample browser non critico, invio path diretto:", downsampleErr.message);
       }
 
-      // 2. Query Gemini Vision API (via local backend proxy) with retry and rate-limiting self-healing
+      // 2. Query Vision API
       let data = null;
       let retries = 3;
 
-      // Spacing delay to stay under the Free Tier 15 RPM rate limit (1 request every 4 seconds)
-      if (processing) {
+      if (processing && aiEngine === 'gemini') {
+        if (onStatusUpdate) onStatusUpdate("Attesa anti-quota Gemini (4s)...");
         await new Promise(resolve => setTimeout(resolve, 4000));
+      }
+
+      if (onStatusUpdate) {
+        if (aiEngine === 'ollama') {
+          const mList = selectedOllamaModels.length > 0 ? selectedOllamaModels.join(' + ') : 'Ollama';
+          onStatusUpdate(`Inferenza locale (${mList})... attendi ~15-35s`);
+        } else if (aiEngine === 'gemini') {
+          onStatusUpdate("Analisi Google Gemini Cloud in corso...");
+        } else {
+          onStatusUpdate("Generazione tag offline in corso...");
+        }
       }
 
       // Collect recognized people from detected faces, PLUS any trained people already in the photo keywords
@@ -741,22 +1040,41 @@ export default function App() {
       const existingKeywordPeople = (img.metadata?.keywords || [])
         .filter(k => (people || []).some(p => p.name.toLowerCase() === k.toLowerCase()));
       
-      const peopleForGemini = [...new Set([...faceNames, ...existingKeywordPeople].filter(Boolean))];
+      const rawPeople = [...new Set([...faceNames, ...existingKeywordPeople].filter(Boolean))];
+      const peopleForGemini = rawPeople.map(pName => {
+        const clean = pName.replace(/\s*\[[MFB]\]/i, '').trim();
+        const matchedEventPerson = eventPersons.find(ep => ep.name.toLowerCase() === clean.toLowerCase());
+        if (matchedEventPerson) {
+          return `${matchedEventPerson.name} [${matchedEventPerson.gender}]`;
+        }
+        return pName;
+      });
 
       while (retries > 0) {
         try {
+          const activeAuthToken = aiEngine === 'gemini' 
+            ? apiKey.trim() 
+            : (aiEngine === 'customCloud' ? customCloudKey.trim() : undefined);
+
           const response = await fetch(`${API_BASE}/api/analyze-gemini`, {
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey.trim()}` 
+              ...(activeAuthToken ? { 'Authorization': `Bearer ${activeAuthToken}` } : {})
             },
             body: JSON.stringify({
               filePath: base64Image ? undefined : img.path,
               base64Image: base64Image ? base64Image.split(',')[1] : undefined,
               landmarksDb,
               detectedPeople: peopleForGemini,
-              globalTags
+              globalTags,
+              customInstruction: customInstruction.trim() || undefined,
+              provider: aiEngine === 'customCloud' ? customCloudProvider : aiEngine,
+              customCloudKey: customCloudKey.trim() || undefined,
+              cloudModel: customCloudModel.trim() || undefined,
+              ollamaUrl,
+              ollamaModels: selectedOllamaModels,
+              ollamaModel: selectedOllamaModels[0] || 'llava:latest'
             })
           });
 
@@ -785,10 +1103,9 @@ export default function App() {
             
             // Render a real-time countdown in the batch status bar
             for (let w = secondsToWait; w > 0; w--) {
-              setCurrentProcessingName(`Quota superata. Attesa di ${w}s prima di riprovare...`);
+              if (onStatusUpdate) onStatusUpdate(`Quota superata. Attesa di ${w}s prima di riprovare...`);
               await new Promise(resolve => setTimeout(resolve, 1000));
             }
-            setCurrentProcessingName(img.name);
             continue;
           } else {
             throw fetchErr;
@@ -796,15 +1113,17 @@ export default function App() {
         }
       }
 
-      if (!data) throw new Error("Failed to receive analysis data after retries.");
+      if (!data) throw new Error("Risposta vuota o errore dal server di analisi.");
       const analysis = data.analysis;
+
+      if (onStatusUpdate) onStatusUpdate("Composizione metadati e parole chiave...");
 
       // 3. Combine analysis
       const finalKeywords = new Set([
         ...(analysis.suggestedKeywords || []),
         ...(analysis.landmarks || []),
         ...(analysis.objects || []),
-        ...(analysis.events || []),
+        ...(analysis.events ? [analysis.events] : []),
         ...(analysis.predominantColors || []),
         ...(analysis.photoType ? [analysis.photoType] : []),
         ...(analysis.weather ? [analysis.weather] : []),
@@ -851,12 +1170,38 @@ export default function App() {
       let finalTitle = analysis.title || img.name;
       let finalDescription = analysis.description || '';
 
-      // If recognized faces were found but NONE of them appear anywhere in the title, weave them once
+      // If recognized faces were found, integrate them naturally into title and description (NO DASHES)
       if (recognizedNames.length > 0) {
+        const namesFormatted = formatNamesItalian(recognizedNames);
         const hasAnyPersonInTitle = recognizedNames.some(name => finalTitle.toLowerCase().includes(name.toLowerCase()));
+        
         if (!hasAnyPersonInTitle) {
-          const namesFormatted = formatNamesItalian(recognizedNames);
-          finalTitle = `${namesFormatted} - ${finalTitle}`;
+          let cleanT = finalTitle.trim();
+          // Replace generic words like "Giovane gamer", "Un ragazzo", "Bambino" directly with the person name
+          const genericPattern = /^(?:Un |Una |Il |La )?(?:giovane|ragazzo|ragazza|bambino|bambina|persona|uomo|donna|individuo)\b/i;
+          const genericPlural = /^(?:Due|Tre|Quattro|\d+)?\s*(?:giovani|ragazzi|ragazze|bambini|bambine|persone|uomini|donne)\b/i;
+          
+          if (genericPattern.test(cleanT)) {
+            finalTitle = cleanT.replace(genericPattern, namesFormatted).trim();
+          } else if (genericPlural.test(cleanT)) {
+            finalTitle = cleanT.replace(genericPlural, namesFormatted).trim();
+          } else if (/^(?:Ritratto|Foto|Scatto|Primo piano)\s+(?:di|con)\s+(?:un|una|uno|dei|delle)?\s*(?:persona|ragazzo|ragazza|bambino|bambina|uomo|donna)?/i.test(cleanT)) {
+            finalTitle = cleanT.replace(/^(Ritratto|Foto|Scatto|Primo piano)\s+(?:di|con).*$/i, `$1 con ${namesFormatted}`).trim();
+          } else if (/^(?:al|allo|alla|ai|agli|alle|in|sul|sulla|sullo|sui|sugli|sulle|mentre|giocando|sedut[oaie]|in piedi)\b/i.test(cleanT)) {
+            finalTitle = `${namesFormatted} ${cleanT.charAt(0).toLowerCase() + cleanT.slice(1)}`;
+          } else {
+            // Natural integration without dash: e.g. "Gamer in casa" -> "Tiziana gamer in casa"
+            finalTitle = `${namesFormatted} ${cleanT.charAt(0).toLowerCase() + cleanT.slice(1)}`;
+          }
+        }
+
+        // Also integrate into description if it starts with generic subject (e.g. "Giovane gamer in casa..." -> "Tiziana gamer in casa...")
+        const hasAnyPersonInDesc = recognizedNames.some(name => finalDescription.toLowerCase().includes(name.toLowerCase()));
+        if (!hasAnyPersonInDesc && finalDescription) {
+          const genericDescPat = /^(?:Un |Una |Il |La )?(?:giovane|ragazzo|ragazza|bambino|bambina|persona|uomo|donna)\b/i;
+          if (genericDescPat.test(finalDescription.trim())) {
+            finalDescription = finalDescription.trim().replace(genericDescPat, namesFormatted).trim();
+          }
         }
       }
 
@@ -877,7 +1222,8 @@ export default function App() {
 
       return updatedMetadata;
     } catch (err) {
-      console.error(`Error analyzing ${img.name}:`, err);
+      console.error(`Errore durante analisi di ${img.name}:`, err);
+      showToast(`Errore su ${img.name}: ${err.message}`, "error");
       return null;
     }
   };
@@ -894,7 +1240,7 @@ export default function App() {
     }
     
     setProcessing(true);
-    setProgress(0);
+    setProgress(1); // Set to 1% immediately so the user sees immediate activation
     
     try {
       const updatedImages = [...images];
@@ -909,9 +1255,32 @@ export default function App() {
           setProgress(Math.round(((i + 1) / targetImages.length) * 100));
           continue;
         }
-        setCurrentProcessingName(img.name);
-        
-        const newMeta = await analyzeImage(img);
+
+        const basePct = Math.round((i / targetImages.length) * 100);
+        const nextPct = Math.round(((i + 1) / targetImages.length) * 100);
+        const chunk = Math.max(3, nextPct - basePct);
+
+        setCurrentProcessingName(`[${i + 1}/${targetImages.length}] ${img.name}: Avvio analisi...`);
+        setProgress(Math.min(99, basePct + Math.round(chunk * 0.1)));
+
+        // Live ticker to advance progress bar smoothly while model is processing
+        let subFraction = 0.15;
+        const subTicker = setInterval(() => {
+          if (subFraction < 0.85) {
+            subFraction += 0.08;
+            setProgress(Math.min(99, basePct + Math.round(chunk * subFraction)));
+          }
+        }, 2500);
+
+        let newMeta = null;
+        try {
+          newMeta = await analyzeImage(img, (statusText) => {
+            setCurrentProcessingName(`[${i + 1}/${targetImages.length}] ${img.name}: ${statusText}`);
+          });
+        } finally {
+          clearInterval(subTicker);
+        }
+
         if (newMeta) {
           updatedImages[mainIdx] = {
             ...img,
@@ -925,7 +1294,7 @@ export default function App() {
           }
         }
         
-        setProgress(Math.round(((i + 1) / targetImages.length) * 100));
+        setProgress(nextPct);
       }
       
       showToast("Analisi batch completata!");
@@ -1088,7 +1457,7 @@ export default function App() {
     ];
     
     setManualCropImage(imageSrc);
-    setSelectedPersonForCrop(eventPersons.length > 0 ? eventPersons[0] : (trainedPeopleList[0]?.name || 'Mattia'));
+    setSelectedPersonForCrop(eventPersons.length > 0 ? eventPersons[0].name : (trainedPeopleList[0]?.name || 'Mattia'));
     setCustomPersonName('');
     setManualDragStart(null);
     setManualDragEnd(null);
@@ -1226,39 +1595,98 @@ export default function App() {
       };
       updatedMeta.faces = facesList;
 
-      // Add to keywords if not already there, removing Sconosciuto
-      let keywordsList = [...(updatedMeta.keywords || [])];
-      let filteredKeywords = keywordsList.filter(k => 
-        k.toLowerCase() !== 'sconosciuto' && 
-        k.toLowerCase() !== 'unknown'
+      // Trova genere vecchio e nuovo per la concordanza grammaticale automatica
+      const getPersonGender = (pName) => {
+        if (!pName) return 'M';
+        const clean = pName.toLowerCase().trim();
+        const foundEp = eventPersons.find(p => p.name.toLowerCase().trim() === clean);
+        if (foundEp && foundEp.gender) return foundEp.gender;
+        const foundP = people.find(p => p.name.toLowerCase().trim() === clean);
+        if (foundP && foundP.gender) return foundP.gender;
+        if (clean.endsWith('a') && !['andrea', 'luca', 'mattia', 'nicola', 'elia'].includes(clean)) return 'F';
+        return 'M';
+      };
+
+      const oldGender = getPersonGender(oldName);
+      const newGender = getPersonGender(name);
+
+      let currentTitle = updatedMeta.title || "";
+      let currentDesc = updatedMeta.description || "";
+
+      // Concordanza immediata in italiano (seduta -> seduto o viceversa)
+      if (oldName && oldName.toLowerCase() !== 'sconosciuto' && oldName.toLowerCase() !== 'unknown') {
+        currentTitle = applyItalianGenderConcordance(currentTitle, oldName, name, oldGender, newGender);
+        currentDesc = applyItalianGenderConcordance(currentDesc, oldName, name, oldGender, newGender);
+      } else {
+        if (!currentTitle.toLowerCase().includes(name.toLowerCase())) {
+          currentTitle = `${name} ${currentTitle.charAt(0).toLowerCase() + currentTitle.slice(1)}`;
+        }
+        currentTitle = applyItalianGenderConcordance(currentTitle, null, name, oldGender, newGender);
+        currentDesc = applyItalianGenderConcordance(currentDesc, null, name, oldGender, newGender);
+      }
+
+      updatedMeta.title = cleanDuplicateNames(currentTitle, [name, oldName]);
+      updatedMeta.description = cleanDuplicateNames(currentDesc, [name, oldName]);
+
+      // Aggiorna le parole chiave rimuovendo Sconosciuto/oldName e aggiungendo il nuovo nome
+      const kwSet = new Set(
+        (updatedMeta.keywords || []).filter(k => 
+          k.toLowerCase() !== 'sconosciuto' && 
+          k.toLowerCase() !== 'unknown' && 
+          (!oldName || k.toLowerCase() !== oldName.toLowerCase())
+        )
       );
-      let title = updatedMeta.title || "";
-      let description = updatedMeta.description || "";
+      if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
+        kwSet.add(name);
+      }
+      updatedMeta.keywords = Array.from(kwSet);
+
+      // Aggiorna istantaneamente l'interfaccia a schermo!
+      const instantImg = {
+        ...selectedImage,
+        metadata: updatedMeta,
+        analyzed: true
+      };
+      setSelectedImage(instantImg);
+      setImages(images.map(img => img.path === selectedImage.path ? instantImg : img));
 
       setAnalyzingSingle(true);
       try {
         let instruction = "";
         const wasUnknown = (!oldName || oldName.toLowerCase() === 'sconosciuto' || oldName.toLowerCase() === 'unknown');
         if (wasUnknown) {
-           instruction = `Aggiungi la persona chiamata "${name}" alla frase. Integra la persona nel contesto (ad esempio, se prima si parlava genericamente di "un uomo" o "un bambino", sostituiscilo con "${name}"). Correggi la grammatica e non lasciare frasi a metà.`;
+           instruction = `Aggiungi la persona chiamata "${name}" (${newGender === 'F' ? 'donna' : 'uomo'}) alla frase. Integra la persona nel contesto e concorda il genere (es. seduto/seduta, ragazzo/ragazza). Non lasciare frasi a metà.`;
         } else {
-           instruction = `Sostituisci la persona chiamata "${oldName}" con "${name}". Correggi le concordanze di genere o numero se necessario, e non lasciare frasi a metà. Mantenere il contesto identico.`;
+           instruction = `Sostituisci la persona chiamata "${oldName}" (${oldGender === 'F' ? 'donna' : 'uomo'}) con "${name}" (${newGender === 'F' ? 'donna' : 'uomo'}). Correggi con estrema attenzione tutte le concordanze di genere (es. da seduta a seduto o viceversa) e di numero. Mantieni il contesto identico.`;
         }
+
+        const activeAuthToken = aiEngine === 'gemini' 
+          ? apiKey.trim() 
+          : (aiEngine === 'customCloud' ? customCloudKey.trim() : undefined);
 
         const response = await fetch(`${API_BASE}/api/rewrite-text`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey.trim()}` },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(activeAuthToken ? { 'Authorization': `Bearer ${activeAuthToken}` } : {})
+          },
           body: JSON.stringify({
-            title: title,
-            description: description,
-            instruction: instruction
+            title: updatedMeta.title,
+            description: updatedMeta.description,
+            instruction: instruction,
+            provider: aiEngine === 'customCloud' ? customCloudProvider : aiEngine,
+            customCloudKey: customCloudKey.trim() || undefined,
+            cloudModel: customCloudModel.trim() || undefined,
+            ollamaUrl,
+            ollamaModels: selectedOllamaModels,
+            ollamaModel: selectedOllamaModels[0] || 'llava:latest'
           })
         });
         
         if (response.ok) {
           const data = await response.json();
-          const rewrittenTitle = data.title || title;
-          const rewrittenDesc = data.description || description;
+          const rewrittenTitle = data.title || updatedMeta.title;
+          const rewrittenDesc = data.description || updatedMeta.description;
           updatedMeta.title = cleanDuplicateNames(rewrittenTitle, [name, oldName]);
           updatedMeta.description = cleanDuplicateNames(rewrittenDesc, [name, oldName]);
         }
@@ -1319,11 +1747,17 @@ export default function App() {
         try {
           const response = await fetch(`${API_BASE}/api/rewrite-text`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey.trim()}` },
+            headers: { 
+              'Content-Type': 'application/json',
+              ...(apiKey ? { 'Authorization': `Bearer ${apiKey.trim()}` } : {})
+            },
             body: JSON.stringify({
               title: updatedMeta.title || "",
               description: updatedMeta.description || "",
-              instruction: `Rimuovi la persona chiamata "${name}" dalla frase, correggendo la grammatica (es. aggiustando singolare/plurale o togliendo congiunzioni inutili) e mantenendo il resto del contesto intatto.`
+              instruction: `Rimuovi la persona chiamata "${name}" dalla frase, correggendo la grammatica (es. aggiustando singolare/plurale o togliendo congiunzioni inutili) e mantenendo il resto del contesto intatto.`,
+              provider: aiEngine,
+              ollamaUrl,
+              ollamaModel
             })
           });
           if (response.ok) {
@@ -1502,11 +1936,18 @@ export default function App() {
       try {
         const response = await fetch(`${API_BASE}/api/rewrite-text`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey.trim()}` },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'Authorization': `Bearer ${apiKey.trim()}` } : {})
+          },
           body: JSON.stringify({
             title: title,
             description: description,
-            instruction: `Aggiungi la persona chiamata "${name}" alla frase. Integra la persona nel contesto (ad esempio, se prima si parlava genericamente di "un uomo" o "un bambino", sostituiscilo con "${name}"). Correggi la grammatica e non lasciare frasi a metà.`
+            instruction: `Aggiungi la persona chiamata "${name}" alla frase. Integra la persona nel contesto (ad esempio, se prima si parlava genericamente di "un uomo" o "un bambino", sostituiscilo con "${name}"). Correggi la grammatica e non lasciare frasi a metà.`,
+            provider: aiEngine,
+            ollamaUrl,
+            ollamaModels: selectedOllamaModels,
+            ollamaModel: selectedOllamaModels[0] || 'llava:latest'
           })
         });
         
@@ -1659,7 +2100,14 @@ export default function App() {
   return (
     <div className="app-container">
       {/* Sidebar Left */}
-      <aside className="sidebar sidebar-glass">
+      <aside 
+        className="sidebar sidebar-glass" 
+        style={{ 
+          width: `${sidebarWidth}px`, 
+          minWidth: `${sidebarWidth}px`, 
+          maxWidth: `${sidebarWidth}px` 
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="url(#gradient)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <defs>
@@ -1762,16 +2210,71 @@ export default function App() {
             </div>
           </div>
 
+          <div className="sidebar-header" style={{ marginTop: '16px' }}>🧠 Istruzione AI Personalizzata</div>
+          <div style={{ padding: '0 8px', marginBottom: '24px' }}>
+            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: '1.4' }}>
+              Descrivi il contesto dell'evento o della scena. L'AI userà queste informazioni per generare titoli e descrizioni molto più precisi.
+            </p>
+            <textarea
+              className="form-input"
+              placeholder={'Es. "Matrimonio di Luca e Sara a Villa d\'Este, settembre 2025. I bambini si chiamano Emma e Samuele."'}
+              value={customInstruction}
+              onChange={e => setCustomInstruction(e.target.value)}
+              rows={4}
+              style={{ width: '100%', resize: 'vertical', fontSize: '12px', lineHeight: '1.5', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+            {customInstruction.trim() && (
+              <button
+                className="btn btn-secondary"
+                style={{ marginTop: '6px', fontSize: '11px', padding: '4px 10px' }}
+                onClick={() => setCustomInstruction('')}
+              >
+                ✕ Cancella istruzione
+              </button>
+            )}
+          </div>
+
           <div className="sidebar-header" style={{ marginTop: '16px' }}>Persone Evento</div>
           <div style={{ padding: '0 8px', marginBottom: '16px' }}>
             <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: 1.4 }}>
-              Aggiungi qui persone (es. "Roberto [M]") che si trovano solo in questo evento, così appariranno subito nel menu a tendina.
+              Aggiungi persone all'evento specificando il genere per coniugare correttamente descrizioni e articoli.
             </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-              {eventPersons.map(tag => (
-                <div key={tag} className="tag-pill">
-                  {tag}
-                  <button onClick={() => setEventPersons(prev => prev.filter(t => t !== tag))}>×</button>
+            <div style={{ marginBottom: eventPersons.length > 0 ? '8px' : '0' }}>
+              {eventPersons.map(person => (
+                <div key={person.name} className="event-person-item">
+                  <span style={{ fontWeight: '500', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={person.name}>
+                    {person.name}
+                  </span>
+                  <div className="gender-toggle">
+                    <button
+                      type="button"
+                      className={`gender-toggle-btn ${person.gender === 'M' ? 'active-m' : ''}`}
+                      onClick={() => {
+                        setEventPersons(prev => prev.map(p => p.name === person.name ? { ...p, gender: 'M' } : p));
+                      }}
+                      title="Uomo (maschile)"
+                    >
+                      Uomo
+                    </button>
+                    <button
+                      type="button"
+                      className={`gender-toggle-btn ${person.gender === 'F' ? 'active-f' : ''}`}
+                      onClick={() => {
+                        setEventPersons(prev => prev.map(p => p.name === person.name ? { ...p, gender: 'F' } : p));
+                      }}
+                      title="Donna (femminile)"
+                    >
+                      Donna
+                    </button>
+                  </div>
+                  <button 
+                    type="button"
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '15px', padding: '0 2px', lineHeight: 1 }}
+                    onClick={() => setEventPersons(prev => prev.filter(p => p.name !== person.name))}
+                    title={`Rimuovi ${person.name}`}
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
             </div>
@@ -1779,59 +2282,411 @@ export default function App() {
               <input 
                 className="form-input" 
                 style={{ flex: 1 }} 
-                placeholder="Es. Roberto [M]" 
+                placeholder="Es. Roberto" 
                 value={newEventPerson}
                 onChange={(e) => setNewEventPerson(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newEventPerson.trim()) {
-                    setEventPersons(prev => [...new Set([...prev, newEventPerson.trim()])]);
+                    const clean = newEventPerson.trim();
+                    setEventPersons(prev => {
+                      if (prev.some(p => p.name.toLowerCase() === clean.toLowerCase())) return prev;
+                      return [...prev, { name: clean, gender: 'M' }];
+                    });
                     setNewEventPerson('');
                   }
                 }}
               />
               <button 
+                type="button"
                 className="btn btn-secondary"
                 style={{ padding: '0 12px', flexShrink: 0 }}
                 onClick={() => {
                   if (newEventPerson.trim()) {
-                    setEventPersons(prev => [...new Set([...prev, newEventPerson.trim()])]);
+                    const clean = newEventPerson.trim();
+                    setEventPersons(prev => {
+                      if (prev.some(p => p.name.toLowerCase() === clean.toLowerCase())) return prev;
+                      return [...prev, { name: clean, gender: 'M' }];
+                    });
                     setNewEventPerson('');
                   }
                 }}
+                title="Aggiungi persona all'evento"
               >
                 +
               </button>
             </div>
           </div>
 
-          <div className="sidebar-header">Impostazioni</div>
-          <div style={{ padding: '0 8px' }}>
-            <label className="form-label" style={{ marginBottom: '4px', display: 'block' }}>Gemini API Key</label>
-            <input 
-              type="password"
-              className="form-input" 
-              style={{ width: '100%', marginBottom: '12px' }} 
-              placeholder="Inserisci API Key" 
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-            <button
-              className="btn btn-secondary"
-              style={{ width: '100%', fontSize: '11px', color: '#ff5c5c', borderColor: 'rgba(255,92,92,0.3)', padding: '6px' }}
-              onClick={async () => {
-                if (confirm("Vuoi spegnere il server di Photo Tag Pro?")) {
-                  try {
-                    await fetch(`${API_BASE}/api/shutdown`, { method: 'POST' });
-                  } catch (e) {}
-                  alert("Server spento. Puoi chiudere questa scheda del browser.");
-                }
+          <div className="sidebar-header" style={{ marginTop: '16px' }}>Motore AI & Analisi</div>
+          <div style={{ padding: '0 8px', marginBottom: '16px' }}>
+            {/* Opzione 1: Google Gemini (Cloud) */}
+            <div 
+              className={`ai-engine-card ${aiEngine === 'gemini' ? 'active' : ''}`}
+              style={{ cursor: 'pointer' }}
+              onClick={() => {
+                setAiEngine('gemini');
+                setExpandedEngine(prev => prev === 'gemini' ? null : 'gemini');
               }}
             >
-              ⏻ Spegni Server
+              <div className="ai-engine-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0 }}>
+                  <input
+                    type="radio"
+                    name="aiEngine"
+                    checked={aiEngine === 'gemini'}
+                    onChange={() => {
+                      setAiEngine('gemini');
+                      setExpandedEngine('gemini');
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span className="ai-engine-title">☁️ Google Gemini</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="status-dot-badge" title={geminiConnected ? "Chiave API valida inserita" : "Chiave API mancante"}>
+                    <span className={`status-dot ${geminiConnected ? 'green' : 'red'}`}></span>
+                    <span style={{ color: geminiConnected ? '#34C759' : '#FF3B30' }}>
+                      {geminiConnected ? 'Connesso' : 'Non attiva'}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: '9px', opacity: 0.6 }}>{expandedEngine === 'gemini' ? '▲' : '▼'}</span>
+                </div>
+              </div>
+              {expandedEngine === 'gemini' && (
+                <div className="ai-engine-body" onClick={(e) => e.stopPropagation()} style={{ paddingTop: '8px' }}>
+                  <label className="form-label" style={{ fontSize: '10px', marginBottom: '2px', display: 'block' }}>Chiave API (Google AI Studio)</label>
+                  <input 
+                    type="password"
+                    className="form-input" 
+                    style={{ width: '100%', fontSize: '11px', padding: '4px 6px', minHeight: 'unset' }} 
+                    placeholder="Incolla GEMINI_API_KEY" 
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Opzione 2: Ollama Vision (Locale Offline) */}
+            <div 
+              className={`ai-engine-card ${aiEngine === 'ollama' ? 'active' : ''}`}
+              style={{ cursor: 'pointer' }}
+              onClick={() => {
+                setAiEngine('ollama');
+                setExpandedEngine(prev => prev === 'ollama' ? null : 'ollama');
+              }}
+            >
+              <div className="ai-engine-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0 }}>
+                  <input
+                    type="radio"
+                    name="aiEngine"
+                    checked={aiEngine === 'ollama'}
+                    onChange={() => {
+                      setAiEngine('ollama');
+                      setExpandedEngine('ollama');
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span className="ai-engine-title">🦙 Ollama Vision</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="status-dot-badge" title={ollamaConnected ? "Ollama in esecuzione" : "Ollama non rilevato"}>
+                    <span className={`status-dot ${ollamaConnected ? 'green' : 'red'}`}></span>
+                    <span style={{ color: ollamaConnected ? '#34C759' : '#FF3B30' }}>
+                      {ollamaConnected ? 'Attivo' : 'Offline'}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: '9px', opacity: 0.6 }}>{expandedEngine === 'ollama' ? '▲' : '▼'}</span>
+                </div>
+              </div>
+              {expandedEngine === 'ollama' && (
+                <div className="ai-engine-body" onClick={(e) => e.stopPropagation()} style={{ paddingTop: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label className="form-label" style={{ fontSize: '10px', margin: 0, fontWeight: '600' }}>
+                      Modelli Vision (Selezione Multipla)
+                    </label>
+                    <button 
+                      type="button" 
+                      onClick={checkProvidersStatus}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent-color)', fontSize: '10px', cursor: 'pointer', padding: 0 }}
+                      title="Ricarica modelli Ollama"
+                    >
+                      {ollamaChecking ? '⏳...' : '🔄 Ricarica'}
+                    </button>
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginBottom: '6px' }}>
+                    {ollamaModels.length > 0 ? (
+                      ollamaModels.map(m => {
+                        const isSelected = selectedOllamaModels.includes(m);
+                        const isLlava = m.includes('llava');
+                        const isMoon = m.includes('moondream');
+                        const isLlama = m.includes('llama3.2');
+                        const badgeLabel = isLlama ? '11B OCR' : isLlava ? 'Vision 7B (Consigliato)' : isMoon ? '1.8B (Sperimentale)' : 'Vision';
+
+                        return (
+                          <label 
+                            key={m}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '3px 6px',
+                              borderRadius: '5px',
+                              backgroundColor: isSelected ? 'rgba(0, 122, 255, 0.08)' : 'rgba(128, 128, 128, 0.04)',
+                              border: `1px solid ${isSelected ? 'rgba(0, 122, 255, 0.25)' : 'rgba(128, 128, 128, 0.08)'}`,
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              margin: 0
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {
+                                  setSelectedOllamaModels(prev => {
+                                    if (prev.includes(m)) {
+                                      if (prev.length === 1) return prev;
+                                      return prev.filter(x => x !== m);
+                                    } else {
+                                      return [...prev, m];
+                                    }
+                                  });
+                                }}
+                                style={{ cursor: 'pointer', margin: 0 }}
+                              />
+                              <span style={{ fontWeight: isSelected ? '600' : '400', color: isSelected ? 'var(--accent-color)' : 'var(--text-primary)' }}>
+                                {m}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '9px', opacity: 0.7, padding: '1px 4px', borderRadius: '3px', backgroundColor: 'rgba(128,128,128,0.1)' }}>
+                              {badgeLabel}
+                            </span>
+                          </label>
+                        );
+                      })
+                    ) : (
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', padding: '4px 0' }}>
+                        Nessun modello rilevato. Clicca 🔄 Ricarica.
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{
+                        width: '100%',
+                        fontSize: '11px',
+                        padding: '5px 8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        borderRadius: '6px',
+                        border: '1px dashed var(--accent-color)',
+                        color: 'var(--accent-color)',
+                        backgroundColor: 'rgba(0, 122, 255, 0.05)',
+                        cursor: isImportingModel ? 'wait' : 'pointer'
+                      }}
+                      onClick={handleImportLocalModel}
+                      disabled={isImportingModel}
+                      title="Seleziona la cartella locale con i file .gguf o Modelfile per registrarla direttamente in Ollama"
+                    >
+                      <span>📁</span>
+                      <span>{isImportingModel ? '⏳ Caricamento in corso...' : 'Carica da Cartella / USB'}</span>
+                    </button>
+                  </div>
+
+                  {selectedOllamaModels.length > 1 && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '3px 6px',
+                      backgroundColor: 'rgba(52, 199, 89, 0.12)',
+                      border: '1px solid rgba(52, 199, 89, 0.25)',
+                      borderRadius: '5px',
+                      fontSize: '10px',
+                      color: '#248a3d',
+                      marginBottom: '6px',
+                      fontWeight: '500'
+                    }}>
+                      <span>🤝</span>
+                      <span>Fusione Cooperativa ({selectedOllamaModels.length} modelli in parallelo)</span>
+                    </div>
+                  )}
+                  <label className="form-label" style={{ fontSize: '10px', marginBottom: '2px', display: 'block' }}>Host URL</label>
+                  <input 
+                    type="text"
+                    className="form-input" 
+                    style={{ width: '100%', fontSize: '10px', padding: '3px 6px', minHeight: 'unset', color: 'var(--text-secondary)' }} 
+                    placeholder="http://localhost:11434" 
+                    value={ollamaUrl}
+                    onChange={(e) => setOllamaUrl(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Opzione 3: Altri Provider Cloud (OpenAI, Claude, Groq Free, OpenRouter) */}
+            <div 
+              className={`ai-engine-card ${aiEngine === 'customCloud' ? 'active' : ''}`}
+              style={{ cursor: 'pointer' }}
+              onClick={() => {
+                setAiEngine('customCloud');
+                setExpandedEngine(prev => prev === 'customCloud' ? null : 'customCloud');
+              }}
+            >
+              <div className="ai-engine-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0 }}>
+                  <input
+                    type="radio"
+                    name="aiEngine"
+                    checked={aiEngine === 'customCloud'}
+                    onChange={() => {
+                      setAiEngine('customCloud');
+                      setExpandedEngine('customCloud');
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span className="ai-engine-title">🌐 Altri Provider Cloud</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="status-dot-badge" title={customCloudConnected ? "Chiave API valida" : "Inserisci la chiave API"}>
+                    <span className={`status-dot ${customCloudConnected ? 'green' : 'red'}`}></span>
+                    <span style={{ color: customCloudConnected ? '#34C759' : '#FF3B30' }}>
+                      {customCloudConnected ? 'Pronto' : 'Chiave mancante'}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: '9px', opacity: 0.6 }}>{expandedEngine === 'customCloud' ? '▲' : '▼'}</span>
+                </div>
+              </div>
+              {expandedEngine === 'customCloud' && (
+                <div className="ai-engine-body" onClick={(e) => e.stopPropagation()} style={{ paddingTop: '8px' }}>
+                  <label className="form-label" style={{ fontSize: '10px', marginBottom: '2px', display: 'block' }}>
+                    Servizio AI
+                  </label>
+                  <select
+                    className="form-input"
+                    style={{ width: '100%', fontSize: '11px', padding: '4px 6px', marginBottom: '6px' }}
+                    value={customCloudProvider}
+                    onChange={(e) => setCustomCloudProvider(e.target.value)}
+                  >
+                    <option value="openrouter">🪐 OpenRouter (Multi-modello Free - Consigliato)</option>
+                    <option value="groq">⚡ Groq Cloud (Llama 3.2 11B Vision - 100% GRATIS)</option>
+                    <option value="openai">🤖 OpenAI (gpt-4o-mini)</option>
+                    <option value="claude">🎭 Anthropic Claude (3.5 Haiku Vision)</option>
+                  </select>
+
+                  <label className="form-label" style={{ fontSize: '10px', marginBottom: '2px', display: 'block' }}>
+                    {customCloudProvider === 'openrouter' && 'Chiave API OpenRouter (openrouter.ai)'}
+                    {customCloudProvider === 'groq' && 'Chiave API Groq (gratuita su console.groq.com)'}
+                    {customCloudProvider === 'openai' && 'Chiave API OpenAI (platform.openai.com)'}
+                    {customCloudProvider === 'claude' && 'Chiave API Anthropic (console.anthropic.com)'}
+                  </label>
+                  <input 
+                    type="password"
+                    className="form-input" 
+                    style={{ width: '100%', fontSize: '11px', padding: '4px 6px', minHeight: 'unset' }} 
+                    placeholder={
+                      customCloudProvider === 'groq' ? 'Incolla gsk_...' :
+                      customCloudProvider === 'openai' ? 'Incolla sk-...' :
+                      customCloudProvider === 'claude' ? 'Incolla sk-ant-...' :
+                      'Incolla sk-or-...'
+                    }
+                    value={customCloudKey}
+                    onChange={(e) => setCustomCloudKey(e.target.value)}
+                  />
+
+                  {customCloudProvider === 'openrouter' && (
+                    <div style={{ marginTop: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                        <label className="form-label" style={{ fontSize: '10px', margin: 0 }}>
+                          Modelli Vision Rilevati (Live da OpenRouter)
+                        </label>
+                        <a 
+                          href="https://openrouter.ai/models?max_price=0" 
+                          target="_blank" 
+                          rel="noreferrer" 
+                          style={{ fontSize: '9px', color: 'var(--accent-primary)', textDecoration: 'none' }}
+                          title="Vedi lista completa modelli su OpenRouter"
+                        >
+                          Catalogo ↗
+                        </a>
+                      </div>
+                      <select
+                        className="form-input"
+                        style={{ width: '100%', fontSize: '10px', padding: '3px 6px', minHeight: 'unset', marginBottom: '4px' }}
+                        value={
+                          openrouterModels.some(m => m.id === customCloudModel)
+                            ? customCloudModel
+                            : 'custom'
+                        }
+                        onChange={(e) => {
+                          if (e.target.value !== 'custom') {
+                            setCustomCloudModel(e.target.value);
+                          } else {
+                            setCustomCloudModel('');
+                          }
+                        }}
+                      >
+                        {openrouterModels.map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.id.includes('nemotron-3.5-super-vl') ? '⭐ ' : '🟢 '}
+                            {m.name}
+                          </option>
+                        ))}
+                        <option value="custom">✍️ Altro modello (digita ID personalizzato)...</option>
+                      </select>
+
+                      {(!openrouterModels.some(m => m.id === customCloudModel)) && (
+                        <input 
+                          type="text"
+                          className="form-input" 
+                          style={{ width: '100%', fontSize: '10px', padding: '3px 6px', minHeight: 'unset' }} 
+                          placeholder="Es: nvidia/nemotron-3.5-super-vl:free o openai/gpt-4o-mini" 
+                          value={customCloudModel}
+                          onChange={(e) => setCustomCloudModel(e.target.value)}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  <p style={{ fontSize: '10px', color: 'var(--text-secondary)', margin: '6px 0 0 0', lineHeight: 1.3 }}>
+                    {customCloudProvider === 'openrouter' && '🪐 OpenRouter connette a decine di modelli gratuiti rilevati online in tempo reale.'}
+                    {customCloudProvider === 'groq' && '⚡ Groq offre un tier gratuito ultra-veloce (~0.5s) per Llama 3.2 Vision.'}
+                    {customCloudProvider === 'openai' && '✨ gpt-4o-mini offre descrizioni e titoli italiani ad altissima fedeltà visiva.'}
+                    {customCloudProvider === 'claude' && '💡 Claude 3.5 Haiku eccelle nella comprensione del contesto e nel linguaggio.'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ width: '100%', fontSize: '11px', color: '#ff5c5c', borderColor: 'rgba(255,92,92,0.3)', padding: '6px', marginTop: '10px' }}
+              onClick={() => setShowShutdownConfirm(true)}
+            >
+              ⏻ Spegni Server e Chiudi
             </button>
           </div>
         </nav>
       </aside>
+
+      {/* Sidebar Resizer Handle */}
+      <div 
+        className="sidebar-resizer"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          isResizingSidebar.current = true;
+          document.body.style.cursor = 'col-resize';
+        }}
+      />
 
       {/* Main Content Pane */}
       <main className="main-content">
@@ -1863,11 +2718,45 @@ export default function App() {
                   />
                   <span>Seleziona Tutte</span>
                 </label>
+
+                <div 
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px', 
+                    background: 'rgba(128, 128, 128, 0.08)', 
+                    padding: '3px 8px', 
+                    borderRadius: '16px',
+                    border: '0.5px solid rgba(128, 128, 128, 0.15)',
+                    marginLeft: '8px'
+                  }} 
+                  title={`Dimensione icone: ${thumbnailSize}px (trascina per ridimensionare)`}
+                >
+                  <span style={{ fontSize: '11px', opacity: 0.6 }}>🔍</span>
+                  <input 
+                    type="range"
+                    min="110"
+                    max="340"
+                    step="10"
+                    value={thumbnailSize}
+                    onChange={(e) => setThumbnailSize(Number(e.target.value))}
+                    style={{
+                      width: '85px',
+                      height: '4px',
+                      cursor: 'pointer',
+                      accentColor: 'var(--accent-color)'
+                    }}
+                  />
+                  <span style={{ fontSize: '11px', fontWeight: '500', minWidth: '38px', color: 'var(--text-secondary)' }}>
+                    {thumbnailSize}px
+                  </span>
+                </div>
               </div>
             )}
           </div>
-          {activeTab === 'photos' && images.length > 0 && (
-            <div className="toolbar-actions">
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            {activeTab === 'photos' && images.length > 0 && (
+              <div className="toolbar-actions">
               {selectedImagePaths.size > 0 ? (
                 <>
                   <button 
@@ -1919,10 +2808,13 @@ export default function App() {
                       className="btn btn-secondary" 
                       onClick={async () => {
                         setProcessing(true);
-                        const success = await saveImageMetadata(selectedImage);
+                        const res = await saveImageMetadata(selectedImage);
                         setProcessing(false);
-                        if (success) {
-                          showToast(`Metadati salvati!`);
+                        if (res && res.success) {
+                          const updated = { ...selectedImage, analyzed: true, isNew: false };
+                          setSelectedImage(updated);
+                          setImages(prev => prev.map(img => img.path === selectedImage.path ? updated : img));
+                          showToast(`Metadati di "${selectedImage.name}" salvati!`);
                         } else {
                           showToast("Errore durante il salvataggio.", "error");
                         }
@@ -1944,16 +2836,33 @@ export default function App() {
               )}
             </div>
           )}
+            <button
+              type="button"
+              className="btn-power-toolbar"
+              title="Spegni Server e Chiudi App"
+              onClick={() => setShowShutdownConfirm(true)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                <line x1="12" y1="2" x2="12" y2="12"></line>
+              </svg>
+            </button>
+          </div>
         </header>
 
         {processing && (
           <div>
-            <div style={{ padding: '12px 24px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', background: 'var(--accent-light)' }}>
-              <span>{currentProcessingName || 'Elaborazione in corso...'}</span>
-              <span>{progress}%</span>
+            <div style={{ padding: '10px 24px', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--accent-light)', borderBottom: '1px solid rgba(0, 122, 255, 0.15)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                <span style={{ display: 'inline-block', width: '13px', height: '13px', border: '2px solid rgba(0, 122, 255, 0.3)', borderTopColor: 'var(--accent-color)', borderRadius: '50%', animation: 'spin 0.7s linear infinite', flexShrink: 0 }}></span>
+                <span style={{ fontWeight: '500', color: 'var(--accent-color)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {currentProcessingName || 'Elaborazione in corso...'}
+                </span>
+              </div>
+              <span style={{ fontWeight: '600', color: 'var(--accent-color)', marginLeft: '12px', flexShrink: 0 }}>{progress}%</span>
             </div>
             <div className="batch-progress-bar">
-              <div className="batch-progress-fill" style={{ width: `${progress}%` }}></div>
+              <div className="batch-progress-fill" style={{ width: `${Math.max(2, progress)}%` }}></div>
             </div>
           </div>
         )}
@@ -1998,7 +2907,7 @@ export default function App() {
                 <p style={{ marginTop: '8px' }}>Clicca qui per sfogliare e selezionare la cartella con le tue foto.</p>
               </div>
             ) : (
-              <div className="photo-grid">
+              <div className="photo-grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${thumbnailSize}px, 1fr))` }}>
                 {filteredImages.map(img => (
                   <div 
                     key={img.path} 
@@ -2192,7 +3101,7 @@ export default function App() {
                       {eventPersons.length > 0 && (
                         <optgroup label="Persone Evento">
                           {eventPersons.map(p => (
-                            <option key={p} value={p}>{p}</option>
+                            <option key={p.name} value={p.name}>{p.name} ({p.gender === 'F' ? 'Donna' : 'Uomo'})</option>
                           ))}
                         </optgroup>
                       )}
@@ -2293,9 +3202,12 @@ export default function App() {
             disabled={processing || analyzingSingle}
             onClick={async () => {
               setProcessing(true);
-              const success = await saveImageMetadata(selectedImage);
+              const res = await saveImageMetadata(selectedImage);
               setProcessing(false);
-              if (success) {
+              if (res && res.success) {
+                const updated = { ...selectedImage, analyzed: true, isNew: false };
+                setSelectedImage(updated);
+                setImages(prev => prev.map(img => img.path === selectedImage.path ? updated : img));
                 showToast(`Metadati di "${selectedImage.name}" salvati su disco!`);
               } else {
                 showToast("Errore durante il salvataggio dei metadati.", "error");
@@ -2335,7 +3247,7 @@ export default function App() {
                 {eventPersons.length > 0 && (
                   <optgroup label="Persone Evento">
                     {eventPersons.map(p => (
-                      <option key={p} value={p}>{p}</option>
+                      <option key={p.name} value={p.name}>{p.name} ({p.gender === 'F' ? 'Donna' : 'Uomo'})</option>
                     ))}
                   </optgroup>
                 )}
@@ -2442,6 +3354,48 @@ export default function App() {
                 style={{ width: '100%', marginTop: '8px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontWeight: 500 }}
               >
                 Annulla
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shutdown Confirmation Modal */}
+      {showShutdownConfirm && (
+        <div className="modal-overlay" style={{ zIndex: 99999 }}>
+          <div className="modal-content" style={{ maxWidth: '420px', padding: '28px' }}>
+            <div style={{ color: '#ff3b30', marginBottom: '14px', display: 'flex', justifyContent: 'center' }}>
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+                <line x1="12" y1="2" x2="12" y2="12"></line>
+              </svg>
+            </div>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', fontWeight: 600 }}>Chiudi Photo Tag Pro</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.5, margin: '0 0 24px 0' }}>
+              Sei sicuro di voler fermare il server e chiudere l'App?
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button 
+                type="button"
+                className="btn btn-secondary" 
+                style={{ flex: 1, padding: '10px 16px', fontSize: '13px' }} 
+                onClick={() => setShowShutdownConfirm(false)}
+              >
+                No, Annulla
+              </button>
+              <button 
+                type="button"
+                className="btn" 
+                style={{ flex: 1, padding: '10px 16px', fontSize: '13px', backgroundColor: '#ff3b30', color: '#fff', border: 'none', fontWeight: 600, borderRadius: '8px', cursor: 'pointer' }}
+                onClick={async () => {
+                  setShowShutdownConfirm(false);
+                  try {
+                    await fetch(`${API_BASE}/api/shutdown`, { method: 'POST' });
+                  } catch (e) {}
+                  window.close();
+                }}
+              >
+                Sì, Spegni e Chiudi
               </button>
             </div>
           </div>

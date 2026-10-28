@@ -18,10 +18,13 @@ Thumbs.db
 
 # Output/Build files
 dist/
+dist-electron/
 frontend/dist/
 frontend/public/models/
 *.log
+*.zip
 .cache/
+trained_people.json
 backend/test_*.js
 backend/test_image.png
 Icon?

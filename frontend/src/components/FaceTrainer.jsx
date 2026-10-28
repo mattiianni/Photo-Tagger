@@ -259,7 +259,7 @@ export default function FaceTrainer({ people, onPeopleUpdated, onMatcherUpdated 
           <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '11px', background: 'var(--success-color)', borderColor: 'var(--success-color)', color: '#fff' }} onClick={async () => {
             try {
               // The API_BASE logic isn't easily imported here if we rely on App.jsx, but we can use relative or localhost
-              const res = await fetch(`http://localhost:3001/api/sync-github`, { method: 'POST' });
+              const res = await fetch(`/api/sync-github`, { method: 'POST' });
               const data = await res.json();
               if (data.success) {
                 alert(data.message);
