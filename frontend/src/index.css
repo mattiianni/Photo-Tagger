@@ -118,14 +118,14 @@ body {
 
 /* Sidebar resizer handle */
 .sidebar-resizer {
-  width: 6px;
+  width: 8px;
   cursor: col-resize;
   background-color: transparent;
   transition: background-color 0.2s;
-  z-index: 20;
+  z-index: 25;
   flex-shrink: 0;
-  margin-left: -3px;
-  margin-right: -3px;
+  margin-left: -4px;
+  margin-right: -4px;
 }
 
 .sidebar-resizer:hover, .sidebar-resizer:active {
@@ -197,6 +197,7 @@ body {
 /* Main Content Area */
 .main-content {
   flex-grow: 1;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -397,11 +398,14 @@ body {
 
 /* Right Inspector panel */
 .inspector-resizer {
-  width: 6px;
+  width: 8px;
   cursor: col-resize;
   background-color: transparent;
   transition: background-color 0.2s;
-  z-index: 20;
+  z-index: 25;
+  flex-shrink: 0;
+  margin-left: -4px;
+  margin-right: -4px;
 }
 
 .inspector-resizer:hover, .inspector-resizer:active {
@@ -410,7 +414,6 @@ body {
 }
 
 .inspector {
-  width: var(--inspector-width);
   height: 100%;
   flex-shrink: 0;
   display: flex;
@@ -419,6 +422,7 @@ body {
   padding: 20px;
   overflow-y: auto;
   user-select: none;
+  box-sizing: border-box;
 }
 
 .inspector-section {

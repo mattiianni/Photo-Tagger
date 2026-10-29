@@ -231,11 +231,13 @@ export const applyItalianGenderConcordance = (text, oldName, newName, oldGender,
 
 
 const removeDescriptorFromPerson = (personList, personName, faceDescriptor) => {
-  if (!faceDescriptor || !personName || personName.toLowerCase() === 'sconosciuto' || personName.toLowerCase() === 'unknown') return personList;
-  const targetPersonIdx = personList.findIndex(p => p.name.toLowerCase() === personName.toLowerCase());
+  if (!faceDescriptor || !personName || typeof personName !== 'string' || personName.toLowerCase() === 'sconosciuto' || personName.toLowerCase() === 'unknown') return personList;
+  const targetPersonIdx = personList.findIndex(p => p && p.name && p.name.toLowerCase() === personName.toLowerCase());
   if (targetPersonIdx === -1) return personList;
   
   const targetPerson = personList[targetPersonIdx];
+  if (!targetPerson || !Array.isArray(targetPerson.descriptors)) return personList;
+
   let matchIdx = -1;
   for (let i = 0; i < targetPerson.descriptors.length; i++) {
     const d = targetPerson.descriptors[i];
@@ -261,11 +263,13 @@ const removeDescriptorFromPerson = (personList, personName, faceDescriptor) => {
   
   if (matchIdx !== -1) {
     const updatedPerson = { ...targetPerson };
-    updatedPerson.descriptors = [...targetPerson.descriptors];
-    updatedPerson.photos = [...targetPerson.photos];
+    updatedPerson.descriptors = [...(targetPerson.descriptors || [])];
+    updatedPerson.photos = [...(targetPerson.photos || [])];
     
     updatedPerson.descriptors.splice(matchIdx, 1);
-    updatedPerson.photos.splice(matchIdx, 1);
+    if (updatedPerson.photos.length > matchIdx) {
+      updatedPerson.photos.splice(matchIdx, 1);
+    }
     
     const newList = [...personList];
     newList[targetPersonIdx] = updatedPerson;
@@ -618,15 +622,15 @@ export default function App() {
     const handleMouseMove = (e) => {
       if (isResizing.current) {
         const newWidth = window.innerWidth - e.clientX;
-        if (newWidth > 250 && newWidth < 800) {
+        if (newWidth >= 220 && newWidth <= 850) {
           setInspectorWidth(newWidth);
-          localStorage.setItem('inspector_width', newWidth);
+          try { localStorage.setItem('inspector_width', newWidth); } catch (err) {}
         }
       } else if (isResizingSidebar.current) {
         const newWidth = e.clientX;
-        if (newWidth > 220 && newWidth < 650) {
+        if (newWidth >= 200 && newWidth <= 700) {
           setSidebarWidth(newWidth);
-          localStorage.setItem('sidebar_width', newWidth);
+          try { localStorage.setItem('sidebar_width', newWidth); } catch (err) {}
         }
       }
     };
@@ -635,13 +639,14 @@ export default function App() {
         isResizing.current = false;
         isResizingSidebar.current = false;
         document.body.style.cursor = 'default';
+        document.body.style.userSelect = '';
       }
     };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
     };
   }, []);
 
@@ -734,8 +739,16 @@ export default function App() {
     
     // Filter out temporary event persons before saving permanently
     const persistentPeople = newList.filter(p => !eventPersons.some(ep => ep.name === p.name));
-    localStorage.setItem('trained_people', JSON.stringify(persistentPeople));
-    await savePeopleToBackend(persistentPeople);
+    try {
+      localStorage.setItem('trained_people', JSON.stringify(persistentPeople));
+    } catch (e) {
+      console.warn("Could not save trained_people to localStorage:", e);
+    }
+    try {
+      await savePeopleToBackend(persistentPeople);
+    } catch (e) {
+      console.warn("Could not save trained_people to backend:", e);
+    }
   };
 
   // Load and migrate trained people database on mount
@@ -1716,72 +1729,112 @@ export default function App() {
   };
 
   const handleRemoveFace = async (faceIndex) => {
-    if (!selectedImage || !selectedImage.metadata || !selectedImage.metadata.faces) return;
+    if (!selectedImage || !selectedImage.metadata || !Array.isArray(selectedImage.metadata.faces)) return;
 
     try {
       const updatedMeta = { ...selectedImage.metadata };
       const facesList = [...(updatedMeta.faces || [])];
       
-      const removedFace = facesList.splice(faceIndex, 1)[0];
-      const name = removedFace.name;
+      const removedFace = facesList[faceIndex];
+      if (!removedFace) return;
+      facesList.splice(faceIndex, 1);
+
+      const rawName = removedFace.name || "";
+      const name = typeof rawName === 'string' ? rawName.trim() : "";
 
       updatedMeta.faces = facesList;
-      
-      // Remove the face from the trained people database if it was assigned to someone
-      let trainedPeopleList = [...people];
-      if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
-        trainedPeopleList = removeDescriptorFromPerson(trainedPeopleList, name, removedFace.descriptor);
-        await updatePeopleList(trainedPeopleList);
-      }
 
-      // 1. Remove the name from keywords if it's no longer present in other faces
-      const nameStillExists = facesList.some(f => f.name && f.name.trim().toLowerCase() === name.trim().toLowerCase());
-      if (!nameStillExists && name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
+      // 1. Remove name from keywords if no longer present in remaining faces
+      const nameStillExists = Boolean(name) && facesList.some(f => f && f.name && f.name.trim().toLowerCase() === name.toLowerCase());
+      if (name && !nameStillExists && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
         const keywordsList = [...(updatedMeta.keywords || [])];
-        updatedMeta.keywords = keywordsList.filter(k => k && k.trim().toLowerCase() !== name.trim().toLowerCase());
+        updatedMeta.keywords = keywordsList.filter(k => k && typeof k === 'string' && k.trim().toLowerCase() !== name.toLowerCase());
       }
 
-      // 2. Remove the name from the title & description if present and not in other faces
-      if (name && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown' && !nameStillExists) {
+      // 2. Clean name from title & description locally first (fast & reliable)
+      if (name && !nameStillExists && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
+        const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const nameRegexComma = new RegExp(`\\s*(?:,\\s*)?${escapedName}\\s*(?:e\\s+|ed\\s+|,\\s*)?`, 'gi');
+        const nameRegexEnd = new RegExp(`\\s*(?:e\\s+|ed\\s+)?${escapedName}\\b`, 'gi');
+        
+        let fastTitle = (updatedMeta.title || "").replace(nameRegexComma, ' ').replace(nameRegexEnd, '').replace(/\s{2,}/g, ' ').trim();
+        let fastDesc = (updatedMeta.description || "").replace(nameRegexComma, ' ').replace(nameRegexEnd, '').replace(/\s{2,}/g, ' ').trim();
+        
+        fastTitle = fastTitle.replace(/^[\s,:-]+|[\s,:-]+$/g, '').trim();
+        fastDesc = fastDesc.replace(/^[\s,:-]+|[\s,:-]+$/g, '').trim();
+
+        updatedMeta.title = cleanDuplicateNames(fastTitle, [name]);
+        updatedMeta.description = cleanDuplicateNames(fastDesc, [name]);
+      }
+
+      // 3. Immediately reflect in UI state so the face disappears with zero lag
+      const instantImage = {
+        ...selectedImage,
+        metadata: { ...updatedMeta },
+        analyzed: true
+      };
+      setSelectedImage(instantImage);
+      setImages(prev => prev.map(img => img.path === selectedImage.path ? instantImage : img));
+
+      // 4. If name was removed and AI is available, polish grammar in background
+      if (name && !nameStillExists && name.toLowerCase() !== 'sconosciuto' && name.toLowerCase() !== 'unknown') {
         setAnalyzingSingle(true);
         try {
+          const activeAuthToken = aiEngine === 'gemini' 
+            ? apiKey.trim() 
+            : (aiEngine === 'customCloud' ? customCloudKey.trim() : undefined);
+
           const response = await fetch(`${API_BASE}/api/rewrite-text`, {
             method: 'POST',
             headers: { 
               'Content-Type': 'application/json',
-              ...(apiKey ? { 'Authorization': `Bearer ${apiKey.trim()}` } : {})
+              ...(activeAuthToken ? { 'Authorization': `Bearer ${activeAuthToken}` } : {})
             },
             body: JSON.stringify({
               title: updatedMeta.title || "",
               description: updatedMeta.description || "",
-              instruction: `Rimuovi la persona chiamata "${name}" dalla frase, correggendo la grammatica (es. aggiustando singolare/plurale o togliendo congiunzioni inutili) e mantenendo il resto del contesto intatto.`,
-              provider: aiEngine,
+              instruction: `Rimuovi la persona chiamata "${name}" dalla frase, correggendo la grammatica e concordanze italiane e mantenendo il resto del contesto intatto.`,
+              provider: aiEngine === 'customCloud' ? customCloudProvider : aiEngine,
+              customCloudKey: customCloudKey.trim() || undefined,
+              cloudModel: customCloudModel.trim() || undefined,
               ollamaUrl,
-              ollamaModel
+              ollamaModels: selectedOllamaModels,
+              ollamaModel: selectedOllamaModels[0] || 'llava:latest'
             })
           });
+
           if (response.ok) {
             const data = await response.json();
-            const rewrittenTitle = data.title || updatedMeta.title;
-            const rewrittenDesc = data.description || updatedMeta.description;
-            updatedMeta.title = cleanDuplicateNames(rewrittenTitle, [name]);
-            updatedMeta.description = cleanDuplicateNames(rewrittenDesc, [name]);
+            if (data && (data.title || data.description)) {
+              const rewrittenTitle = data.title || updatedMeta.title;
+              const rewrittenDesc = data.description || updatedMeta.description;
+              updatedMeta.title = cleanDuplicateNames(rewrittenTitle, [name]);
+              updatedMeta.description = cleanDuplicateNames(rewrittenDesc, [name]);
+              
+              const polishedImage = {
+                ...selectedImage,
+                metadata: { ...updatedMeta },
+                analyzed: true
+              };
+              setSelectedImage(polishedImage);
+              setImages(prev => prev.map(img => img.path === selectedImage.path ? polishedImage : img));
+            }
           }
         } catch (e) {
-          console.error("AI text rewrite failed", e);
+          console.warn("AI text rewrite non critico:", e);
+        } finally {
+          setAnalyzingSingle(false);
         }
       }
 
-      const updatedImage = {
+      const finalImage = {
         ...selectedImage,
-        metadata: updatedMeta,
+        metadata: { ...updatedMeta },
         analyzed: true
       };
 
-      setSelectedImage(updatedImage);
-      setImages(images.map(img => img.path === selectedImage.path ? updatedImage : img));
-
-      await saveImageMetadata(updatedImage);
+      await saveImageMetadata(finalImage);
+      showToast("Persona rimossa con successo!");
 
     } catch (err) {
       console.error("Error removing face:", err);
@@ -2685,6 +2738,7 @@ export default function App() {
           e.preventDefault();
           isResizingSidebar.current = true;
           document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
         }}
       />
 
@@ -2988,9 +3042,17 @@ export default function App() {
               e.preventDefault();
               isResizing.current = true;
               document.body.style.cursor = 'col-resize';
+              document.body.style.userSelect = 'none';
             }}
           />
-          <aside className="inspector glass" style={{ width: `${inspectorWidth}px` }}>
+          <aside 
+            className="inspector glass" 
+            style={{ 
+              width: `${inspectorWidth}px`,
+              minWidth: `${inspectorWidth}px`,
+              maxWidth: `${inspectorWidth}px`
+            }}
+          >
           <div className="inspector-section" style={{ textAlign: 'center' }}>
             <ImageWithFaceOverlays 
               imagePath={selectedImage.path} 
