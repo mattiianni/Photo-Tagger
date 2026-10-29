@@ -23,18 +23,7 @@
     "productName": "Photo Tag Pro",
     "mac": {
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "universal"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "universal"
-          ]
-        }
+        "dmg"
       ],
       "icon": "AppIcon.icns",
       "category": "public.app-category.photography",

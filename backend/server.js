@@ -1409,23 +1409,28 @@ JSON structure example:
   "suggestedKeywords": ["..."]
 }`;
 
-    const response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: "image/jpeg",
-                  data: base64Data
-                }
+    const geminiPayload = JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: base64Data
               }
-            ]
-          }
-        ]
-      })
-    );
+            }
+          ]
+        }
+      ]
+    });
+
+    let response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`, geminiPayload);
+
+    if (!response.ok && (response.status === 404 || response.status === 503)) {
+      console.log(`[Gemini] gemini-3.5-flash status ${response.status}, retrying with gemini-3.5-flash-lite...`);
+      response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`, geminiPayload);
+    }
 
     if (!response.ok) {
       const errText = await response.text();
@@ -1617,12 +1622,17 @@ Output format:
   "description": "..."
 }`;
 
-    const response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
-      })
-    );
+    const rewritePayload = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
+    });
+
+    let response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`, rewritePayload);
+
+    if (!response.ok && (response.status === 404 || response.status === 503)) {
+      console.log(`[Gemini rewrite] gemini-3.5-flash status ${response.status}, retrying with gemini-3.5-flash-lite...`);
+      response = await httpsPost(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`, rewritePayload);
+    }
 
     const data = await response.json();
     if (!data.candidates || !data.candidates[0].content) {
